@@ -17,32 +17,24 @@ model User {
   createdAt DateTime @default(now())
 
   agents Agent[]
-  rules  GovernanceRule[]
 }
 
 model Agent {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   userId        String
   name          String
   icon          String
   category      String
   description   String
-  status        String   @default("active")
-  autonomyLevel String   @default("medium")
-  budget        Float?
-  budgetUsed    Float    @default(0)
-  budgetPeriod  String   @default("monthly")
+  status        String    @default("active")
   externalUrl   String?
   lastScannedAt DateTime?
-  scanInterval  Int      @default(30)
-  createdAt     DateTime @default(now())
+  scanInterval  Int       @default(30)
+  createdAt     DateTime  @default(now())
 
-  user         User            @relation(fields: [userId], references: [id])
-  approvals    ApprovalItem[]
-  activities   ActivityLog[]
-  rules        GovernanceRule[]
-  transactions Transaction[]
-  conflicts    ConflictAgent[]
+  user       User           @relation(fields: [userId], references: [id])
+  content    ApprovalItem[]
+  activities ActivityLog[]
 }
 
 model ApprovalItem {
@@ -50,9 +42,7 @@ model ApprovalItem {
   agentId    String
   action     String
   detail     String
-  amount     Float?
   urgency    String    @default("medium")
-  riskTag    String?
   status     String    @default("pending")
   reasoning  String?
   createdAt  DateTime  @default(now())
@@ -70,54 +60,6 @@ model ActivityLog {
   detail    String
   metadata  String   @default("{}")
   createdAt DateTime @default(now())
-
-  agent Agent @relation(fields: [agentId], references: [id])
-}
-
-model GovernanceRule {
-  id        String   @id @default(cuid())
-  agentId   String?
-  userId    String
-  condition String
-  action    String
-  threshold String?
-  isActive  Boolean  @default(true)
-  priority  Int      @default(0)
-  createdAt DateTime @default(now())
-
-  agent Agent? @relation(fields: [agentId], references: [id])
-  user  User   @relation(fields: [userId], references: [id])
-}
-
-model Conflict {
-  id          String    @id @default(cuid())
-  description String
-  status      String    @default("active")
-  resolution  String?
-  createdAt   DateTime  @default(now())
-  resolvedAt  DateTime?
-
-  agents ConflictAgent[]
-}
-
-model ConflictAgent {
-  id         String @id @default(cuid())
-  conflictId String
-  agentId    String
-
-  conflict Conflict @relation(fields: [conflictId], references: [id])
-  agent    Agent    @relation(fields: [agentId], references: [id])
-
-  @@unique([conflictId, agentId])
-}
-
-model Transaction {
-  id          String   @id @default(cuid())
-  agentId     String
-  description String
-  amount      Float
-  status      String   @default("completed")
-  createdAt   DateTime @default(now())
 
   agent Agent @relation(fields: [agentId], references: [id])
 }

@@ -6,15 +6,9 @@ export async function GET() {
   try {
     const userId = await getSessionUserId()
     const agents = await prisma.agent.findMany({
-      where: { userId: userId },
+      where: { userId },
       include: {
-        _count: {
-          select: {
-            approvals: { where: { status: 'pending' } },
-            activities: true,
-            conflicts: true,
-          },
-        },
+        _count: { select: { content: true, activities: true } },
       },
       orderBy: { createdAt: 'asc' },
     })
@@ -30,7 +24,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
     const userId = await getSessionUserId()
-    const { name, icon, category, description, autonomyLevel, budget, externalUrl } = body
+    const { name, icon, category, description, externalUrl } = body
 
     const agent = await prisma.agent.create({
       data: {
@@ -38,10 +32,8 @@ export async function POST(request: Request) {
         icon,
         category,
         description,
-        autonomyLevel: autonomyLevel ?? 'medium',
-        budget: budget ?? null,
-        externalUrl: externalUrl ?? null,
-        userId: userId,
+        externalUrl: externalUrl || null,
+        userId,
       },
     })
 

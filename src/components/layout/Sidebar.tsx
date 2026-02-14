@@ -6,11 +6,9 @@ import { usePathname } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
 import { cn } from '@/lib/utils'
 import {
-  LayoutDashboard,
-  CheckCircle,
+  Sparkles,
+  FileText,
   Bot,
-  ScrollText,
-  ShieldAlert,
   Settings,
   Menu,
   X,
@@ -19,11 +17,9 @@ import {
 } from 'lucide-react'
 
 const navItems = [
-  { label: 'Command Center', href: '/', icon: LayoutDashboard },
-  { label: 'Approvals', href: '/approvals', icon: CheckCircle },
-  { label: 'My Agents', href: '/agents', icon: Bot },
-  { label: 'Activity Log', href: '/activity', icon: ScrollText },
-  { label: 'Risk & Conflicts', href: '/risk', icon: ShieldAlert },
+  { label: 'Briefing', href: '/', icon: Sparkles },
+  { label: 'Content Queue', href: '/queue', icon: FileText },
+  { label: 'Agents', href: '/agents', icon: Bot },
   { label: 'Settings', href: '/settings', icon: Settings },
 ]
 
@@ -41,13 +37,8 @@ export default function Sidebar() {
     return pathname.startsWith(href)
   }
 
-  const handleLinkClick = () => {
-    setMobileOpen(false)
-  }
-
   return (
     <>
-      {/* Mobile toggle button */}
       <button
         onClick={() => setMobileOpen(true)}
         className="fixed top-4 left-4 z-50 p-2 rounded-button bg-surface-card shadow-card border border-surface-border lg:hidden"
@@ -56,7 +47,6 @@ export default function Sidebar() {
         <Menu className="w-5 h-5 text-text-primary" />
       </button>
 
-      {/* Mobile overlay */}
       {mobileOpen && (
         <div
           className="fixed inset-0 bg-black/20 z-40 lg:hidden"
@@ -65,14 +55,12 @@ export default function Sidebar() {
         />
       )}
 
-      {/* Sidebar */}
       <aside
         className={cn(
           'fixed lg:static inset-y-0 left-0 z-50 w-64 bg-surface-card border-r border-surface-border flex flex-col transition-transform duration-200 ease-in-out',
           mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         )}
       >
-        {/* Close button on mobile */}
         <button
           onClick={() => setMobileOpen(false)}
           className="absolute top-4 right-4 p-1 rounded-button text-text-secondary hover:text-text-primary lg:hidden"
@@ -81,7 +69,6 @@ export default function Sidebar() {
           <X className="w-5 h-5" />
         </button>
 
-        {/* Header */}
         <div className="p-6">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-accent-teal rounded-lg flex items-center justify-center">
@@ -89,12 +76,11 @@ export default function Sidebar() {
             </div>
             <div>
               <h1 className="font-heading text-lg text-text-primary leading-tight">Chief of Staff</h1>
-              <span className="text-xs text-text-secondary">AI Governance</span>
+              <span className="text-xs text-text-secondary">Your AI Staff</span>
             </div>
           </div>
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 px-3 space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon
@@ -103,7 +89,7 @@ export default function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={handleLinkClick}
+                onClick={() => setMobileOpen(false)}
                 className={cn(
                   'flex items-center gap-3 px-3 py-2.5 rounded-button text-sm font-medium transition-colors duration-150',
                   active
@@ -118,7 +104,6 @@ export default function Sidebar() {
           })}
         </nav>
 
-        {/* User section */}
         <div className="p-4 border-t border-surface-border">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-accent-teal-light flex items-center justify-center">

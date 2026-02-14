@@ -1,29 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
-export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const { id } = params
-
-    const approval = await prisma.approvalItem.findUnique({
-      where: { id },
-      include: { agent: true },
-    })
-
-    if (!approval) {
-      return NextResponse.json({ error: 'Approval not found' }, { status: 404 })
-    }
-
-    return NextResponse.json(approval)
-  } catch (error) {
-    console.error('Approval GET error:', error)
-    return NextResponse.json({ error: 'Failed to fetch approval' }, { status: 500 })
-  }
-}
-
 export async function PATCH(
   request: Request,
   { params }: { params: { id: string } }
@@ -31,46 +8,35 @@ export async function PATCH(
   try {
     const { id } = params
     const body = await request.json()
-    const { action, modifiedDetail, modifiedAmount } = body
+    const { action, modifiedDetail } = body
 
-    // If there are modifications, update the approval first
-    if (modifiedDetail || modifiedAmount !== undefined) {
-      const updateData: Record<string, unknown> = {}
-      if (modifiedDetail) updateData.detail = modifiedDetail
-      if (modifiedAmount !== undefined) updateData.amount = modifiedAmount
-
+    if (modifiedDetail) {
       await prisma.approvalItem.update({
         where: { id },
-        data: updateData,
+        data: { detail: modifiedDetail },
       })
     }
 
-    // Update status and resolvedAt
     const status = action === 'approve' ? 'approved' : 'denied'
-    const approval = await prisma.approvalItem.update({
+    const item = await prisma.approvalItem.update({
       where: { id },
       data: { status, resolvedAt: new Date() },
       include: { agent: true },
     })
 
-    // Create activity log
-    const detail = modifiedDetail
-      ? `${action === 'approve' ? 'Approved' : 'Denied'} (modified): ${approval.action}`
-      : `${action === 'approve' ? 'Approved' : 'Denied'}: ${approval.action}`
-
     await prisma.activityLog.create({
       data: {
-        agentId: approval.agentId,
-        action: approval.action,
+        agentId: item.agentId,
+        action: item.action,
         type: action === 'approve' ? 'approved' : 'denied',
-        category: approval.agent.category,
-        detail,
+        category: item.agent.category,
+        detail: `${action === 'approve' ? 'Approved' : 'Dismissed'}: ${item.action}`,
       },
     })
 
-    return NextResponse.json(approval)
+    return NextResponse.json(item)
   } catch (error) {
     console.error('Approval PATCH error:', error)
-    return NextResponse.json({ error: 'Failed to update approval' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to update' }, { status: 500 })
   }
 }

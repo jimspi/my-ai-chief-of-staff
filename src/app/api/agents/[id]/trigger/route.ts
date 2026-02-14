@@ -21,10 +21,10 @@ export async function POST(
       )
     }
 
-    // Call the external agent's generate endpoint
     const baseUrl = agent.externalUrl.replace(/\/$/, '')
-    let posts: string[] = []
+    let posts: { action: string; detail: string }[] = []
 
+    // Try /api/generate first (POST)
     try {
       const generateRes = await fetch(`${baseUrl}/api/generate`, {
         method: 'POST',
@@ -34,39 +34,57 @@ export async function POST(
 
       if (generateRes.ok) {
         const data = await generateRes.json()
-        // The generate endpoint returns posts in various formats
         if (Array.isArray(data)) {
-          posts = data.map((p: { text?: string; content?: string }) => p.text || p.content || String(p))
+          posts = data.map((p: { text?: string; content?: string; title?: string }) => ({
+            action: 'Publish social media post',
+            detail: p.text || p.content || String(p),
+          }))
         } else if (data.posts && Array.isArray(data.posts)) {
-          posts = data.posts.map((p: { text?: string; content?: string }) => p.text || p.content || String(p))
-        } else if (data.text) {
-          posts = [data.text]
-        } else if (data.content) {
-          posts = [data.content]
-        } else if (typeof data === 'string') {
-          posts = [data]
+          posts = data.posts.map((p: { text?: string; content?: string }) => ({
+            action: 'Publish social media post',
+            detail: p.text || p.content || String(p),
+          }))
+        } else if (data.text || data.content) {
+          posts = [{ action: 'Publish social media post', detail: data.text || data.content }]
         }
-      } else {
-        // Fallback: try the scrape endpoint
+      }
+    } catch {
+      // generate endpoint failed, will try scrape
+    }
+
+    // Fallback: try /api/scrape (GET) — returns {articles: [{title, url, summary}]}
+    if (posts.length === 0) {
+      try {
         const scrapeRes = await fetch(`${baseUrl}/api/scrape`, {
           signal: AbortSignal.timeout(30000),
         })
         if (scrapeRes.ok) {
-          const scrapeData = await scrapeRes.json()
-          const headline = scrapeData.text || scrapeData.headline || scrapeData.title || 'News content scraped'
-          posts = [`[Scraped] ${headline}`]
+          const data = await scrapeRes.json()
+          const articles = data.articles || data
+          if (Array.isArray(articles)) {
+            posts = articles
+              .filter((a: { title?: string }) => a.title)
+              .map((a: { title: string; url?: string; summary?: string }) => ({
+                action: `Share news: ${a.title}`,
+                detail: a.summary
+                  ? `${a.title}\n\n${a.summary}${a.url ? `\n\nSource: ${a.url}` : ''}`
+                  : `${a.title}${a.url ? `\n\nSource: ${a.url}` : ''}`,
+              }))
+          }
         }
+      } catch {
+        // scrape also failed
       }
-    } catch (fetchError) {
-      console.error('External agent call failed:', fetchError)
-      // Log the failed scan attempt
+    }
+
+    if (posts.length === 0) {
       await prisma.activityLog.create({
         data: {
           agentId: agent.id,
           action: 'News scan failed',
           type: 'alert',
           category: agent.category,
-          detail: `Failed to reach external agent at ${baseUrl}. The agent may be temporarily unavailable.`,
+          detail: `Could not fetch content from ${baseUrl}. The agent may be temporarily unavailable.`,
         },
       })
 
@@ -77,40 +95,38 @@ export async function POST(
 
       return NextResponse.json({
         success: false,
-        message: 'External agent unreachable',
+        message: 'No content returned from agent',
         postsCreated: 0,
       })
     }
 
-    // Create approval items for each generated post
-    const createdApprovals = []
+    // Create content items for each post
+    const created = []
     for (const post of posts) {
-      if (!post || !post.trim()) continue
-      const approval = await prisma.approvalItem.create({
+      if (!post.detail?.trim()) continue
+      const item = await prisma.approvalItem.create({
         data: {
           agentId: agent.id,
-          action: 'Publish social media post',
-          detail: post.trim(),
+          action: post.action,
+          detail: post.detail.trim(),
           urgency: 'medium',
           status: 'pending',
-          reasoning: 'Auto-generated from KUTV news scan',
+          reasoning: `Auto-generated from news scan at ${baseUrl}`,
         },
       })
-      createdApprovals.push(approval)
+      created.push(item)
     }
 
-    // Log the scan activity
     await prisma.activityLog.create({
       data: {
         agentId: agent.id,
-        action: `News scan completed`,
+        action: 'News scan completed',
         type: 'auto',
         category: agent.category,
-        detail: `Scanned news and generated ${createdApprovals.length} post${createdApprovals.length === 1 ? '' : 's'} for approval.`,
+        detail: `Scanned and found ${created.length} article${created.length === 1 ? '' : 's'} for review.`,
       },
     })
 
-    // Update lastScannedAt
     await prisma.agent.update({
       where: { id: agent.id },
       data: { lastScannedAt: new Date() },
@@ -118,8 +134,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      postsCreated: createdApprovals.length,
-      approvals: createdApprovals,
+      postsCreated: created.length,
     })
   } catch (error) {
     console.error('Trigger POST error:', error)

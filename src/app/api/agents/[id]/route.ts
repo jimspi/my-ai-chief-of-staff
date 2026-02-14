@@ -11,18 +11,8 @@ export async function GET(
     const agent = await prisma.agent.findUnique({
       where: { id },
       include: {
-        _count: {
-          select: {
-            approvals: { where: { status: 'pending' } },
-            activities: true,
-            conflicts: true,
-          },
-        },
-        rules: true,
-        activities: {
-          orderBy: { createdAt: 'desc' },
-          take: 5,
-        },
+        _count: { select: { content: true, activities: true } },
+        activities: { orderBy: { createdAt: 'desc' }, take: 5 },
       },
     })
 
@@ -64,14 +54,8 @@ export async function DELETE(
   try {
     const { id } = params
 
-    // Delete related records first
     await prisma.approvalItem.deleteMany({ where: { agentId: id } })
     await prisma.activityLog.deleteMany({ where: { agentId: id } })
-    await prisma.governanceRule.deleteMany({ where: { agentId: id } })
-    await prisma.transaction.deleteMany({ where: { agentId: id } })
-    await prisma.conflictAgent.deleteMany({ where: { agentId: id } })
-
-    // Delete the agent
     await prisma.agent.delete({ where: { id } })
 
     return NextResponse.json({ success: true })
