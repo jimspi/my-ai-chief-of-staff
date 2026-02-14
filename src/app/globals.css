@@ -2,22 +2,82 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  body {
+    background-color: #F7F5F0;
+    color: #1A1A1A;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background-color: #1A6B5C;
+    color: white;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: #E8E4DE;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: #6B6560;
   }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+@layer components {
+  .card {
+    @apply bg-surface-card rounded-card shadow-card border border-surface-border;
+  }
+
+  .card-hover {
+    @apply bg-surface-card rounded-card shadow-card border border-surface-border transition-shadow duration-200 hover:shadow-card-hover;
+  }
+
+  .btn-primary {
+    @apply bg-accent-teal text-white px-4 py-2 rounded-button font-medium
+           transition-colors duration-150 hover:bg-accent-teal-hover
+           focus:outline-none focus:ring-2 focus:ring-accent-teal focus:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply border border-surface-border text-text-primary px-4 py-2 rounded-button font-medium
+           transition-colors duration-150 hover:bg-surface-bg
+           focus:outline-none focus:ring-2 focus:ring-accent-teal focus:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-danger {
+    @apply border border-status-danger text-status-danger px-4 py-2 rounded-button font-medium
+           transition-colors duration-150 hover:bg-status-danger-light
+           focus:outline-none focus:ring-2 focus:ring-status-danger focus:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .input {
+    @apply w-full px-3 py-2 rounded-input border border-surface-border bg-white
+           text-text-primary placeholder:text-text-secondary/50
+           focus:outline-none focus:ring-2 focus:ring-accent-teal focus:border-accent-teal
+           transition-colors duration-150;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-text-secondary mb-1;
+  }
+
+  .status-dot {
+    @apply w-2 h-2 rounded-full inline-block;
+  }
 }
 
 @layer utilities {
