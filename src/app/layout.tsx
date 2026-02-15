@@ -1,11 +1,9 @@
 import type { Metadata } from 'next'
 import { DM_Serif_Display, DM_Sans, JetBrains_Mono } from 'next/font/google'
 import './globals.css'
-import Sidebar from '@/components/layout/Sidebar'
-import TopBar from '@/components/layout/TopBar'
 import { ToastProvider } from '@/contexts/ToastContext'
 import SessionProvider from '@/components/providers/SessionProvider'
-import ErrorBoundary from '@/components/ui/ErrorBoundary'
+import LayoutShell from '@/components/layout/LayoutShell'
 
 const dmSerifDisplay = DM_Serif_Display({
   weight: '400',
@@ -49,19 +47,7 @@ export default function RootLayout({
       >
         <SessionProvider>
           <ToastProvider>
-            <div className="flex h-screen">
-              <Sidebar />
-              <div className="flex-1 flex flex-col overflow-hidden">
-                <TopBar />
-                <main className="flex-1 overflow-y-auto bg-surface-bg">
-                  <div className="p-4 sm:p-6 max-w-7xl mx-auto">
-                    <ErrorBoundary>
-                      {children}
-                    </ErrorBoundary>
-                  </div>
-                </main>
-              </div>
-            </div>
+            <LayoutShell>{children}</LayoutShell>
           </ToastProvider>
         </SessionProvider>
       </body>
