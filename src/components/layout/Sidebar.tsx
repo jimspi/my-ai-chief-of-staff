@@ -9,6 +9,7 @@ import {
   Sparkles,
   FileText,
   Bot,
+  QrCode,
   Settings,
   Menu,
   X,
@@ -20,6 +21,7 @@ const navItems = [
   { label: 'Briefing', href: '/', icon: Sparkles },
   { label: 'Content Queue', href: '/queue', icon: FileText },
   { label: 'Agents', href: '/agents', icon: Bot },
+  { label: 'QR Code', href: '/qrcode', icon: QrCode },
   { label: 'Settings', href: '/settings', icon: Settings },
 ]
 
