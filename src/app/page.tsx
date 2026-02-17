@@ -37,7 +37,7 @@ export default function BriefingPage() {
   const [briefing, setBriefing] = useState<string | null>(null)
   const [briefingLoading, setBriefingLoading] = useState(false)
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set())
-  const [scanning, setScanning] = useState(false)
+  const [scanningId, setScanningId] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     try {
@@ -80,17 +80,18 @@ export default function BriefingPage() {
   }
 
   async function handleScan(agentId: string) {
-    setScanning(true)
+    setScanningId(agentId)
     try {
       const res = await fetch(`/api/agents/${agentId}/trigger`, { method: 'POST' })
       if (res.ok) {
-        addToast('Scan complete', 'success')
+        const result = await res.json()
+        addToast(`Scan complete — ${result.postsCreated} new item${result.postsCreated === 1 ? '' : 's'}`, 'success')
         fetchData()
       }
     } catch {
       addToast('Scan failed', 'error')
     } finally {
-      setScanning(false)
+      setScanningId(null)
     }
   }
 
@@ -129,7 +130,7 @@ export default function BriefingPage() {
 
   if (!data) return <div className="p-6 text-text-secondary">Failed to load data.</div>
 
-  const newsAgent = data.agents.find((a: Agent) => a.externalUrl)
+  const connectedAgents = data.agents.filter((a: Agent) => a.externalUrl)
 
   return (
     <div className="p-6 space-y-6">
@@ -275,40 +276,42 @@ export default function BriefingPage() {
 
         {/* Right: News Agent / Agent list */}
         <div className="space-y-6">
-          {newsAgent && (
-            <div className="card p-5">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-lg bg-accent-teal-light flex items-center justify-center">
-                  <Newspaper className="w-5 h-5 text-accent-teal" />
-                </div>
-                <div>
-                  <h3 className="font-heading text-base text-text-primary">{newsAgent.name}</h3>
-                  <div className="flex items-center gap-1.5">
-                    <span className={cn('status-dot', getStatusDotColor(newsAgent.status))} />
-                    <span className="text-xs text-text-secondary capitalize">{newsAgent.status}</span>
+          {connectedAgents.map((agent: Agent) => {
+            const Icon = getAgentIcon(agent.icon)
+            const isScanning = scanningId === agent.id
+            return (
+              <div key={agent.id} className="card p-5">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-lg bg-accent-teal-light flex items-center justify-center">
+                    <Icon className="w-5 h-5 text-accent-teal" />
+                  </div>
+                  <div>
+                    <h3 className="font-heading text-base text-text-primary">{agent.name}</h3>
+                    <div className="flex items-center gap-1.5">
+                      <span className={cn('status-dot', getStatusDotColor(agent.status))} />
+                      <span className="text-xs text-text-secondary capitalize">{agent.status}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <p className="text-sm text-text-secondary mb-3">{newsAgent.description}</p>
-              {newsAgent.externalUrl && (
+                <p className="text-sm text-text-secondary mb-3">{agent.description}</p>
                 <div className="flex items-center gap-1.5 text-xs text-text-secondary mb-3">
                   <ExternalLink className="w-3 h-3" />
-                  <span className="truncate">{newsAgent.externalUrl}</span>
+                  <span className="truncate">{agent.externalUrl}</span>
                 </div>
-              )}
-              {newsAgent.lastScannedAt && (
-                <p className="text-xs text-text-secondary mb-4">Last scanned {formatRelativeTime(newsAgent.lastScannedAt)}</p>
-              )}
-              <button
-                onClick={() => handleScan(newsAgent.id)}
-                disabled={scanning}
-                className="btn-primary w-full text-sm flex items-center justify-center gap-2"
-              >
-                <RefreshCw className={cn('w-4 h-4', scanning && 'animate-spin')} />
-                {scanning ? 'Scanning...' : 'Scan News'}
-              </button>
-            </div>
-          )}
+                {agent.lastScannedAt && (
+                  <p className="text-xs text-text-secondary mb-4">Last scanned {formatRelativeTime(agent.lastScannedAt)}</p>
+                )}
+                <button
+                  onClick={() => handleScan(agent.id)}
+                  disabled={scanningId !== null}
+                  className="btn-primary w-full text-sm flex items-center justify-center gap-2"
+                >
+                  <RefreshCw className={cn('w-4 h-4', isScanning && 'animate-spin')} />
+                  {isScanning ? 'Scanning...' : `Scan ${agent.name}`}
+                </button>
+              </div>
+            )
+          })}
 
           <div className="card p-5">
             <div className="flex items-center justify-between mb-4">
