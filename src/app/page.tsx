@@ -52,7 +52,25 @@ export default function BriefingPage() {
     }
   }, [])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  // Auto-sync all connected agents on page load, then refresh data
+  useEffect(() => {
+    let cancelled = false
+    async function syncAndLoad() {
+      await fetchData()
+      try {
+        const res = await fetch('/api/agents/sync', { method: 'POST' })
+        if (res.ok && !cancelled) {
+          const result = await res.json()
+          if (result.totalCreated > 0) {
+            fetchData()
+            addToast(`${result.totalCreated} new item${result.totalCreated === 1 ? '' : 's'} from your agents`, 'success')
+          }
+        }
+      } catch { /* sync failed silently */ }
+    }
+    syncAndLoad()
+    return () => { cancelled = true }
+  }, [fetchData, addToast])
 
   async function handleAction(id: string, action: 'approve' | 'deny') {
     setProcessingIds(prev => new Set(prev).add(id))
