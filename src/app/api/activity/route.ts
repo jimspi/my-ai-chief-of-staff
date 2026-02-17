@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getSessionUserId } from '@/lib/auth-helpers'
+import { getSessionUserId, AuthError } from '@/lib/auth-helpers'
 
 export async function GET(request: Request) {
   try {
@@ -63,6 +63,7 @@ export async function GET(request: Request) {
       totalPages: Math.ceil(total / limit),
     })
   } catch (error) {
+    if (error instanceof AuthError) return NextResponse.json({ error: error.message }, { status: 401 })
     console.error('Activity GET error:', error)
     return NextResponse.json({ error: 'Failed to fetch activity' }, { status: 500 })
   }

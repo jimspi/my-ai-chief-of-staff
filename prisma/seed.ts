@@ -6,17 +6,12 @@ const prisma = new PrismaClient()
 async function main() {
   console.log('Seeding database...')
 
-  // Clean existing data
-  await prisma.activityLog.deleteMany()
-  await prisma.approvalItem.deleteMany()
-  await prisma.agent.deleteMany()
-  await prisma.user.deleteMany()
-  console.log('Cleaned existing data.')
-
-  // Create demo user
+  // Upsert demo user (won't delete other registered users)
   const hashedPassword = await bcrypt.hash('demo1234', 12)
-  const user = await prisma.user.create({
-    data: {
+  const user = await prisma.user.upsert({
+    where: { email: 'alex@example.com' },
+    update: {},
+    create: {
       id: 'demo-user-001',
       name: 'Alex Chen',
       email: 'alex@example.com',
@@ -25,11 +20,13 @@ async function main() {
       settings: JSON.stringify({}),
     },
   })
-  console.log(`Created user: ${user.name} (${user.email})`)
+  console.log(`Ensured user: ${user.name} (${user.email})`)
 
-  // Create news agent with real external URL
-  await prisma.agent.create({
-    data: {
+  // Upsert news agent
+  await prisma.agent.upsert({
+    where: { id: 'agent-echo' },
+    update: { externalUrl: 'https://news-agent-sigma-eight.vercel.app' },
+    create: {
       id: 'agent-echo',
       userId: user.id,
       name: 'Echo',
@@ -41,11 +38,13 @@ async function main() {
       scanInterval: 30,
     },
   })
-  console.log('Created news agent (Echo)')
+  console.log('Ensured news agent (Echo)')
 
-  // Create DeepCut research agent
-  await prisma.agent.create({
-    data: {
+  // Upsert DeepCut research agent
+  await prisma.agent.upsert({
+    where: { id: 'agent-deepcut' },
+    update: { externalUrl: 'https://deepcut-five.vercel.app' },
+    create: {
       id: 'agent-deepcut',
       userId: user.id,
       name: 'DeepCut',
@@ -57,7 +56,7 @@ async function main() {
       scanInterval: 30,
     },
   })
-  console.log('Created research agent (DeepCut)')
+  console.log('Ensured research agent (DeepCut)')
 
   console.log('\nSeed complete!')
   console.log('Login: alex@example.com / demo1234')

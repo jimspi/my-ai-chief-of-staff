@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import { signOut } from 'next-auth/react'
 import {
   Bot,
   Plus,
@@ -33,6 +35,7 @@ const CATEGORY_ICON_MAP: Record<string, string> = {
 const INITIAL_FORM = { name: '', category: 'News', description: '', externalUrl: '' }
 
 export default function AgentsPage() {
+  const router = useRouter()
   const { addToast } = useToast()
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
@@ -40,12 +43,19 @@ export default function AgentsPage() {
   const [form, setForm] = useState(INITIAL_FORM)
   const [creating, setCreating] = useState(false)
 
+  const handleAuthError = useCallback(async () => {
+    addToast('Session expired — please sign in again', 'error')
+    await signOut({ redirect: false })
+    router.push('/login')
+  }, [addToast, router])
+
   const fetchAgents = useCallback(async () => {
     try {
       const res = await fetch('/api/agents')
+      if (res.status === 401) { handleAuthError(); return }
       if (res.ok) setAgents(await res.json())
     } catch { /* */ } finally { setLoading(false) }
-  }, [])
+  }, [handleAuthError])
 
   useEffect(() => { fetchAgents() }, [fetchAgents])
 
@@ -62,11 +72,15 @@ export default function AgentsPage() {
           externalUrl: form.externalUrl || null,
         }),
       })
+      if (res.status === 401) { handleAuthError(); return }
       if (res.ok) {
         addToast('Agent created', 'success')
         setShowAddModal(false)
         setForm(INITIAL_FORM)
         fetchAgents()
+      } else {
+        const data = await res.json()
+        addToast(data.error || 'Failed to create agent', 'error')
       }
     } catch {
       addToast('Failed to create agent', 'error')

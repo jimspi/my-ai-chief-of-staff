@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getSessionUserId } from '@/lib/auth-helpers'
+import { getSessionUserId, AuthError } from '@/lib/auth-helpers'
 
 export async function GET() {
   try {
@@ -15,6 +15,9 @@ export async function GET() {
 
     return NextResponse.json(agents)
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: 401 })
+    }
     console.error('Agents GET error:', error)
     return NextResponse.json({ error: 'Failed to fetch agents' }, { status: 500 })
   }
@@ -39,6 +42,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json(agent, { status: 201 })
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: 401 })
+    }
     console.error('Agents POST error:', error)
     return NextResponse.json({ error: 'Failed to create agent' }, { status: 500 })
   }

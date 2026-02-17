@@ -1,20 +1,15 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getSessionUserId } from '@/lib/auth-helpers'
+import { getSessionUserId, AuthError } from '@/lib/auth-helpers'
 import { syncAgent } from '@/lib/sync'
 
 export async function POST(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
-  let userId: string
   try {
-    userId = await getSessionUserId()
-  } catch {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  }
+    const userId = await getSessionUserId()
 
-  try {
     const agent = await prisma.agent.findFirst({
       where: { id: params.id, userId },
     })
@@ -39,6 +34,7 @@ export async function POST(
       message: result.error || `${result.created} new, ${result.skipped} skipped`,
     })
   } catch (error) {
+    if (error instanceof AuthError) return NextResponse.json({ error: error.message }, { status: 401 })
     console.error('Trigger POST error:', error)
     return NextResponse.json(
       { error: 'Failed to trigger agent' },

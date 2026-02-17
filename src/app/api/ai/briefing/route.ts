@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getSessionUserId } from '@/lib/auth-helpers'
+import { getSessionUserId, AuthError } from '@/lib/auth-helpers'
 import { getOpenAIClient } from '@/lib/openai'
 
 export async function POST(request: Request) {
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'OpenAI API key not configured. Add it in Settings.' },
+        { error: 'OpenAI API key not configured. Add it in Settings or set the OPENAI_API_KEY environment variable on Vercel.' },
         { status: 400 }
       )
     }
@@ -72,7 +72,16 @@ Keep it under 200 words. Do not use markdown headers.`,
 
     return NextResponse.json({ briefing })
   } catch (error) {
+    if (error instanceof AuthError) return NextResponse.json({ error: error.message }, { status: 401 })
     console.error('Briefing API error:', error)
-    return NextResponse.json({ error: 'Failed to generate briefing' }, { status: 500 })
+    const message = error instanceof Error ? error.message : 'Failed to generate briefing'
+    // Surface OpenAI-specific errors
+    if (message.includes('Incorrect API key') || message.includes('invalid_api_key')) {
+      return NextResponse.json({ error: 'Invalid OpenAI API key. Check your key in Settings or Vercel environment variables.' }, { status: 401 })
+    }
+    if (message.includes('quota') || message.includes('rate_limit') || message.includes('insufficient_quota')) {
+      return NextResponse.json({ error: 'OpenAI API quota exceeded or rate limited. Check your OpenAI billing.' }, { status: 429 })
+    }
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
