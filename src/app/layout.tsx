@@ -33,6 +33,14 @@ export const metadata: Metadata = {
     'Personal AI governance dashboard — monitor, control, and manage all your AI agents from one place.',
   keywords: ['AI agents', 'governance', 'dashboard', 'approval workflow', 'risk management'],
   authors: [{ name: 'AI Chief of Staff' }],
+  icons: {
+    icon: [
+      { url: '/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
+    ],
+    apple: '/apple-touch-icon.png',
+  },
+  manifest: '/site.webmanifest',
 }
 
 export default function RootLayout({

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <!-- 3D face gradient -->
+    <linearGradient id="face" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2dd4bf"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+    <!-- 3D depth/shadow side -->
+    <linearGradient id="depth" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d9488"/>
+      <stop offset="100%" stop-color="#064e3b"/>
+    </linearGradient>
+    <!-- Highlight shine -->
+    <linearGradient id="shine" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <!-- Drop shadow -->
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#064e3b" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded square with 3D effect -->
+  <!-- Bottom layer (depth) -->
+  <rect x="48" y="56" width="416" height="416" rx="96" fill="url(#depth)"/>
+  <!-- Top face -->
+  <rect x="48" y="40" width="416" height="416" rx="96" fill="url(#face)" filter="url(#shadow)"/>
+  <!-- Shine overlay -->
+  <rect x="48" y="40" width="416" height="416" rx="96" fill="url(#shine)"/>
+
+  <!-- Stylized bolt/staff icon — represents AI Chief of Staff -->
+  <!-- Clean geometric lightning bolt with slight 3D offset -->
+  <g transform="translate(4, 4)">
+    <polygon points="280,100 200,260 260,260 220,412 340,230 270,230 320,100" fill="#064e3b" opacity="0.3"/>
+  </g>
+  <polygon points="276,96 196,256 256,256 216,408 336,226 266,226 316,96" fill="#ffffff"/>
+</svg>
