@@ -40,6 +40,7 @@ model Agent {
 model ApprovalItem {
   id         String    @id @default(cuid())
   agentId    String
+  externalId String?
   action     String
   detail     String
   urgency    String    @default("medium")
@@ -49,6 +50,8 @@ model ApprovalItem {
   resolvedAt DateTime?
 
   agent Agent @relation(fields: [agentId], references: [id])
+
+  @@unique([agentId, externalId])
 }
 
 model ActivityLog {

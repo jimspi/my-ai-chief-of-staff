@@ -43,6 +43,22 @@ async function main() {
   })
   console.log('Created news agent (Echo)')
 
+  // Create DeepCut research agent
+  await prisma.agent.create({
+    data: {
+      id: 'agent-deepcut',
+      userId: user.id,
+      name: 'DeepCut',
+      icon: 'Search',
+      category: 'Research',
+      description: 'Surfaces research ideas and deep-dive topics for review.',
+      status: 'active',
+      externalUrl: 'https://deepcut-five.vercel.app',
+      scanInterval: 30,
+    },
+  })
+  console.log('Created research agent (DeepCut)')
+
   console.log('\nSeed complete!')
   console.log('Login: alex@example.com / demo1234')
 }

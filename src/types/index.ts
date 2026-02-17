@@ -28,6 +28,7 @@ export interface Agent {
 export interface ContentItem {
   id: string
   agentId: string
+  externalId: string | null
   action: string
   detail: string
   urgency: 'low' | 'medium' | 'high'
