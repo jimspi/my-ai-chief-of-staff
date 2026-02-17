@@ -194,9 +194,19 @@ export default function BriefingPage() {
           </button>
         </div>
         {briefing ? (
-          <p className="text-sm text-text-primary leading-relaxed whitespace-pre-line">{briefing}</p>
+          <div className="text-sm text-text-primary leading-relaxed space-y-3">
+            {briefing.split('\n').map((line, i) => {
+              const trimmed = line.trim()
+              if (!trimmed) return null
+              // Render section headers (PRIORITY ACTIONS, AGENT STATUS, etc.)
+              if (/^[A-Z][A-Z\s]{3,}$/.test(trimmed)) {
+                return <h4 key={i} className="font-heading text-accent-teal text-sm pt-2 first:pt-0">{trimmed}</h4>
+              }
+              return <p key={i} className="text-text-primary">{trimmed}</p>
+            })}
+          </div>
         ) : (
-          <p className="text-sm text-text-secondary">Click &ldquo;Generate Briefing&rdquo; for an AI-powered summary of your agents&apos; activity and items needing attention.</p>
+          <p className="text-sm text-text-secondary">Click &ldquo;Generate Briefing&rdquo; for your Chief of Staff to analyze your agents, review pending content, and tell you exactly what needs your attention.</p>
         )}
       </div>
 
