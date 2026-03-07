@@ -17,7 +17,7 @@ const AGENT_SYSTEM_PROMPTS: Record<string, string> = {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: 'Not authenticated. Please log in.' }, { status: 401 })
   }
 
   const body = await req.json()
@@ -36,14 +36,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
   }
 
-  // Get user's API key from settings
+  // Get user's API key from settings, fall back to server env var
   const user = await prisma.user.findUnique({ where: { id: session.user.id } })
   let apiKey: string | undefined
   try {
     const settings = JSON.parse(user?.settings || '{}')
-    apiKey = settings.openaiApiKey
+    apiKey = settings.openaiApiKey || process.env.OPENAI_API_KEY || undefined
   } catch {
-    // use env fallback
+    apiKey = process.env.OPENAI_API_KEY || undefined
+  }
+
+  if (!apiKey) {
+    return NextResponse.json(
+      { error: 'OpenAI API key not configured. Add it in Settings or set OPENAI_API_KEY on Vercel.' },
+      { status: 400 }
+    )
   }
 
   try {
@@ -82,7 +89,14 @@ export async function POST(req: NextRequest) {
       message: 'Content generated and sent to approval queue.',
     })
   } catch (err) {
+    console.error('Generate API error:', err)
     const message = err instanceof Error ? err.message : 'Generation failed'
+    if (message.includes('Incorrect API key') || message.includes('invalid_api_key')) {
+      return NextResponse.json({ error: 'Invalid OpenAI API key. Check your key in Settings or Vercel environment variables.' }, { status: 401 })
+    }
+    if (message.includes('quota') || message.includes('rate_limit') || message.includes('insufficient_quota')) {
+      return NextResponse.json({ error: 'OpenAI API quota exceeded or rate limited. Check your OpenAI billing.' }, { status: 429 })
+    }
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

@@ -1,15 +1,19 @@
 import OpenAI from 'openai'
 
-let client: OpenAI | null = null
+// Cache client by API key to avoid creating new instances for the same key,
+// but ensure different keys get different clients
+const clientCache = new Map<string, OpenAI>()
 
 export function getOpenAIClient(apiKey?: string): OpenAI {
   const key = apiKey || process.env.OPENAI_API_KEY
   if (!key) {
-    throw new Error('OpenAI API key not configured')
+    throw new Error('OpenAI API key not configured. Add it in Settings or set OPENAI_API_KEY environment variable.')
   }
 
-  if (!client || apiKey) {
+  let client = clientCache.get(key)
+  if (!client) {
     client = new OpenAI({ apiKey: key })
+    clientCache.set(key, client)
   }
   return client
 }

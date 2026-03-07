@@ -44,3 +44,5 @@ prisma/dev.db-journal
 
 # test artifacts
 cookies.txt
+
+.vercel

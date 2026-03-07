@@ -24,6 +24,13 @@ import Badge from '@/components/ui/Badge'
 import { StatSkeleton, CardSkeleton } from '@/components/ui/SkeletonLoader'
 import type { BriefingData, ContentItem, ActivityLogEntry, Agent } from '@/types'
 
+const SUGGESTED_ACTION_COLORS: Record<string, string> = {
+  approve: 'bg-status-success/10 text-status-success',
+  review: 'bg-status-warning/10 text-status-warning',
+  dismiss: 'bg-surface-bg text-text-secondary',
+  escalate: 'bg-status-danger/10 text-status-danger',
+}
+
 const ICON_MAP: Record<string, LucideIcon> = { Newspaper, Mail, Search }
 function getAgentIcon(iconName: string): LucideIcon {
   return ICON_MAP[iconName] || Bot
@@ -210,6 +217,24 @@ export default function BriefingPage() {
         )}
       </div>
 
+      {/* Cross-Agent Insights */}
+      {data.insights && data.insights.length > 0 && (
+        <div className="card p-5 border-l-4 border-l-status-warning">
+          <div className="flex items-center gap-2 mb-3">
+            <Activity className="w-5 h-5 text-status-warning" />
+            <h3 className="font-heading text-lg text-text-primary">Cross-Agent Intelligence</h3>
+          </div>
+          <ul className="space-y-2">
+            {data.insights.map((insight, i) => (
+              <li key={i} className="text-sm text-text-primary flex items-start gap-2">
+                <span className="text-status-warning mt-0.5">&#8226;</span>
+                {insight}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Two-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Content ready + Activity */}
@@ -241,12 +266,23 @@ export default function BriefingPage() {
                           <Icon className="w-4 h-4 text-accent-teal" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
                             <span className="text-xs text-text-secondary">{item.agent?.name}</span>
                             <Badge variant={getUrgencyBadgeVariant(item.urgency)} size="sm">{item.urgency}</Badge>
+                            {item.suggestedAction && (
+                              <span className={cn('text-xs px-1.5 py-0.5 rounded', SUGGESTED_ACTION_COLORS[item.suggestedAction] || '')}>
+                                {item.suggestedAction}
+                              </span>
+                            )}
+                            {item.relevanceScore != null && (
+                              <span className="text-xs text-text-secondary">{item.relevanceScore}/10</span>
+                            )}
                             <span className="text-xs text-text-secondary ml-auto">{formatRelativeTime(item.createdAt)}</span>
                           </div>
                           <p className="text-sm font-medium text-text-primary">{item.action}</p>
+                          {item.goalAlignment && item.goalAlignment !== 'none' && (
+                            <p className="text-xs text-accent-teal mt-0.5">{item.goalAlignment}</p>
+                          )}
                           <p className="text-xs text-text-secondary mt-1 line-clamp-2">{item.detail}</p>
                         </div>
                         <div className="flex gap-1.5 shrink-0">

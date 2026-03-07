@@ -44,7 +44,27 @@ export async function GET() {
       include: { agent: true },
     })
 
-    return NextResponse.json({ stats, content, agents, recentActivity })
+    // Cross-agent insights
+    const insights: string[] = []
+    for (const agent of agents) {
+      if (agent.approvalRate != null && agent.approvalRate < 0.3) {
+        insights.push(`${agent.name} has a low approval rate (${Math.round(agent.approvalRate * 100)}%)`)
+      }
+      if (agent.avgRelevance != null && agent.avgRelevance < 4) {
+        insights.push(`${agent.name} avg relevance is ${agent.avgRelevance.toFixed(1)}/10`)
+      }
+      if (agent.externalUrl && agent.status === 'active') {
+        if (!agent.lastScannedAt || Date.now() - new Date(agent.lastScannedAt).getTime() > 48 * 60 * 60 * 1000) {
+          insights.push(`${agent.name} hasn't been scanned in 48h+`)
+        }
+      }
+    }
+    const highUrgencyCount = content.filter(c => c.urgency === 'high').length
+    if (highUrgencyCount >= 3) {
+      insights.push(`${highUrgencyCount} high-urgency items building up`)
+    }
+
+    return NextResponse.json({ stats, content, agents, recentActivity, insights })
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ error: error.message }, { status: 401 })
     console.error('Dashboard API error:', error)

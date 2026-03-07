@@ -7,6 +7,17 @@ export interface User {
   createdAt: string
 }
 
+export interface Goal {
+  id: string
+  userId: string
+  title: string
+  description: string
+  priority: number
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export interface Agent {
   id: string
   userId: string
@@ -18,6 +29,8 @@ export interface Agent {
   externalUrl: string | null
   lastScannedAt: string | null
   scanInterval: number
+  approvalRate: number | null
+  avgRelevance: number | null
   createdAt: string
   _count?: {
     content: number
@@ -34,6 +47,10 @@ export interface ContentItem {
   urgency: 'low' | 'medium' | 'high'
   status: 'pending' | 'approved' | 'denied'
   reasoning: string | null
+  relevanceScore: number | null
+  suggestedAction: string | null
+  goalAlignment: string | null
+  triaged: boolean
   createdAt: string
   resolvedAt: string | null
   agent?: Agent
@@ -60,4 +77,5 @@ export interface BriefingData {
   content: ContentItem[]
   agents: Agent[]
   recentActivity: ActivityLogEntry[]
+  insights: string[]
 }
