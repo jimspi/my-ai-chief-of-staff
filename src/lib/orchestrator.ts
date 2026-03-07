@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { syncAgent } from '@/lib/sync'
+import { syncGmailAgent, syncCalendarAgent } from '@/lib/google-sync'
 import { triageBatch } from '@/lib/triage'
 
 interface OrchestratorResult {
@@ -11,17 +12,39 @@ interface OrchestratorResult {
 }
 
 export async function orchestrateSync(userId: string, apiKey?: string): Promise<OrchestratorResult> {
-  const agents = await prisma.agent.findMany({
-    where: { userId, status: 'active', externalUrl: { not: null } },
+  // Get external URL agents + Google-connected agents
+  const allAgents = await prisma.agent.findMany({
+    where: { userId, status: 'active' },
   })
 
+  const externalAgents = allAgents.filter(a => a.externalUrl)
+  const gmailAgents = allAgents.filter(a => a.category === 'Gmail')
+  const calendarAgents = allAgents.filter(a => a.category === 'Calendar')
+
+  // Check if Google is connected
+  const googleAccount = await prisma.googleAccount.findUnique({ where: { userId } })
+
   // 1. Sync all agents in parallel
-  const syncResults = await Promise.allSettled(
-    agents.map(async (agent) => ({
+  const syncPromises = [
+    // External URL agents
+    ...externalAgents.map(async (agent) => ({
       name: agent.name,
       result: await syncAgent(agent.id),
-    }))
-  )
+    })),
+    // Gmail agents (if Google connected)
+    ...(googleAccount ? gmailAgents.map(async (agent) => ({
+      name: agent.name,
+      result: await syncGmailAgent(agent.id, userId),
+    })) : []),
+    // Calendar agents (if Google connected)
+    ...(googleAccount ? calendarAgents.map(async (agent) => ({
+      name: agent.name,
+      result: await syncCalendarAgent(agent.id, userId),
+    })) : []),
+  ]
+
+  const agents = [...externalAgents, ...(googleAccount ? [...gmailAgents, ...calendarAgents] : [])]
+  const syncResults = await Promise.allSettled(syncPromises)
 
   const results: Record<string, { created: number; skipped: number; error?: string }> = {}
   let totalCreated = 0
@@ -103,9 +126,11 @@ async function detectPatterns(userId: string): Promise<string[]> {
     }
   }
 
-  // Check for stale agents
+  // Check for stale agents (external URL agents or Google agents)
+  const googleCategories = ['Gmail', 'Calendar']
   const stale = agents.filter((a) => {
-    if (!a.externalUrl || a.status !== 'active') return false
+    if (a.status !== 'active') return false
+    if (!a.externalUrl && !googleCategories.includes(a.category)) return false
     if (!a.lastScannedAt) return true
     return Date.now() - new Date(a.lastScannedAt).getTime() > 48 * 60 * 60 * 1000
   })

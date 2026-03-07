@@ -16,6 +16,7 @@ import {
   Mail,
   Search,
   ExternalLink,
+  Calendar,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn, formatRelativeTime, getUrgencyBadgeVariant, getTypeBadgeVariant, getStatusDotColor } from '@/lib/utils'
@@ -31,7 +32,7 @@ const SUGGESTED_ACTION_COLORS: Record<string, string> = {
   escalate: 'bg-status-danger/10 text-status-danger',
 }
 
-const ICON_MAP: Record<string, LucideIcon> = { Newspaper, Mail, Search }
+const ICON_MAP: Record<string, LucideIcon> = { Newspaper, Mail, Search, Calendar }
 function getAgentIcon(iconName: string): LucideIcon {
   return ICON_MAP[iconName] || Bot
 }
@@ -155,7 +156,8 @@ export default function BriefingPage() {
 
   if (!data) return <div className="p-6 text-text-secondary">Failed to load data.</div>
 
-  const connectedAgents = data.agents.filter((a: Agent) => a.externalUrl)
+  const googleCategories = ['Gmail', 'Calendar']
+  const connectedAgents = data.agents.filter((a: Agent) => a.externalUrl || googleCategories.includes(a.category))
 
   return (
     <div className="p-6 space-y-6">

@@ -9,6 +9,7 @@ import {
   Newspaper,
   Mail,
   Search,
+  Calendar,
   ExternalLink,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -21,7 +22,7 @@ import Toggle from '@/components/ui/Toggle'
 import { CardSkeleton } from '@/components/ui/SkeletonLoader'
 import type { Agent } from '@/types'
 
-const ICON_MAP: Record<string, LucideIcon> = { Newspaper, Mail, Search }
+const ICON_MAP: Record<string, LucideIcon> = { Newspaper, Mail, Search, Calendar }
 function getAgentIcon(iconName: string): LucideIcon {
   return ICON_MAP[iconName] || Bot
 }

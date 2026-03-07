@@ -6,6 +6,7 @@ import {
   Newspaper,
   Mail,
   Search,
+  Calendar,
   Check,
   Copy,
   ChevronDown,
@@ -24,7 +25,7 @@ import Modal from '@/components/ui/Modal'
 import EmptyState from '@/components/ui/EmptyState'
 import type { ContentItem } from '@/types'
 
-const ICON_MAP: Record<string, LucideIcon> = { Newspaper, Mail, Search }
+const ICON_MAP: Record<string, LucideIcon> = { Newspaper, Mail, Search, Calendar }
 function getAgentIcon(iconName: string): LucideIcon {
   return ICON_MAP[iconName] || Bot
 }

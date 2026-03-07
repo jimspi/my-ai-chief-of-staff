@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { User as UserIcon, Key, Eye, EyeOff, Target, Plus, Trash2 } from 'lucide-react'
+import { User as UserIcon, Key, Eye, EyeOff, Target, Plus, Trash2, Mail, Calendar, Unlink } from 'lucide-react'
 import { useToast } from '@/contexts/ToastContext'
 import type { Goal } from '@/types'
 
@@ -20,6 +20,12 @@ export default function SettingsPage() {
   const [showGoalForm, setShowGoalForm] = useState(false)
   const [goalForm, setGoalForm] = useState({ title: '', description: '', priority: 5 })
   const [creatingGoal, setCreatingGoal] = useState(false)
+
+  // Google
+  const [googleConnected, setGoogleConnected] = useState(false)
+  const [googleEmail, setGoogleEmail] = useState('')
+  const [connectingGoogle, setConnectingGoogle] = useState(false)
+  const [disconnectingGoogle, setDisconnectingGoogle] = useState(false)
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -42,7 +48,65 @@ export default function SettingsPage() {
     } catch { /* */ }
   }, [])
 
-  useEffect(() => { fetchSettings(); fetchGoals() }, [fetchSettings, fetchGoals])
+  const fetchGoogleStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/google')
+      if (res.ok) {
+        const data = await res.json()
+        setGoogleConnected(data.connected)
+        setGoogleEmail(data.account?.email || '')
+      }
+    } catch { /* */ }
+  }, [])
+
+  useEffect(() => {
+    fetchSettings(); fetchGoals(); fetchGoogleStatus()
+    // Check URL params for Google callback result
+    const params = new URLSearchParams(window.location.search)
+    const googleResult = params.get('google')
+    if (googleResult === 'connected') {
+      addToast('Google account connected! Gmail and Calendar agents created.', 'success')
+      window.history.replaceState({}, '', '/settings')
+      fetchGoogleStatus()
+    } else if (googleResult === 'error') {
+      addToast(`Google connection failed: ${params.get('reason') || 'unknown error'}`, 'error')
+      window.history.replaceState({}, '', '/settings')
+    }
+  }, [fetchSettings, fetchGoals, fetchGoogleStatus, addToast])
+
+  async function handleConnectGoogle() {
+    setConnectingGoogle(true)
+    try {
+      const res = await fetch('/api/google', { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        window.location.href = data.url
+      } else {
+        const err = await res.json()
+        addToast(err.error || 'Failed to start Google connection', 'error')
+        setConnectingGoogle(false)
+      }
+    } catch {
+      addToast('Failed to connect Google', 'error')
+      setConnectingGoogle(false)
+    }
+  }
+
+  async function handleDisconnectGoogle() {
+    setDisconnectingGoogle(true)
+    try {
+      const res = await fetch('/api/google', { method: 'DELETE' })
+      if (res.ok) {
+        setGoogleConnected(false)
+        setGoogleEmail('')
+        addToast('Google account disconnected', 'info')
+      }
+    } catch {
+      addToast('Failed to disconnect', 'error')
+    } finally {
+      setDisconnectingGoogle(false)
+    }
+  }
 
   async function handleCreateGoal() {
     if (!goalForm.title.trim() || !goalForm.description.trim()) return
@@ -180,6 +244,52 @@ export default function SettingsPage() {
           </div>
           <p className="text-xs text-text-secondary mt-1.5">Optional if OPENAI_API_KEY is set as a server environment variable (e.g. on Vercel). Only needed to override the server key.</p>
         </div>
+      </div>
+
+      {/* Google Integration */}
+      <div className="card p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Mail className="w-5 h-5 text-accent-teal" />
+          <h3 className="font-heading text-lg text-text-primary">Google Account</h3>
+        </div>
+        <p className="text-xs text-text-secondary mb-4">
+          Connect your Google account to let your Chief of Staff monitor Gmail (unread emails, follow-ups) and Google Calendar (today&apos;s schedule, reminders).
+        </p>
+
+        {googleConnected ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-status-success/5 border border-status-success/20">
+              <div className="w-8 h-8 rounded-full bg-status-success/10 flex items-center justify-center">
+                <Mail className="w-4 h-4 text-status-success" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-text-primary">Connected</p>
+                <p className="text-xs text-text-secondary">{googleEmail}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-text-secondary">
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Gmail and Calendar agents are active and will sync automatically.</span>
+            </div>
+            <button
+              onClick={handleDisconnectGoogle}
+              disabled={disconnectingGoogle}
+              className="text-sm text-text-secondary hover:text-status-danger flex items-center gap-1.5 transition-colors"
+            >
+              <Unlink className="w-3.5 h-3.5" />
+              {disconnectingGoogle ? 'Disconnecting...' : 'Disconnect Google Account'}
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleConnectGoogle}
+            disabled={connectingGoogle}
+            className="btn-primary text-sm flex items-center gap-2"
+          >
+            <Mail className="w-4 h-4" />
+            {connectingGoogle ? 'Connecting...' : 'Connect Google Account'}
+          </button>
+        )}
       </div>
 
       {/* Goals */}
