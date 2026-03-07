@@ -16,6 +16,9 @@ import {
   Mail,
   Search,
   ExternalLink,
+  Target,
+  AlertTriangle,
+  Zap,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn, formatRelativeTime, getUrgencyBadgeVariant, getTypeBadgeVariant, getStatusDotColor } from '@/lib/utils'
@@ -29,6 +32,15 @@ function getAgentIcon(iconName: string): LucideIcon {
   return ICON_MAP[iconName] || Bot
 }
 
+function getSuggestedActionColor(action: string | null) {
+  switch (action) {
+    case 'approve': return 'text-status-success'
+    case 'escalate': return 'text-status-danger'
+    case 'dismiss': return 'text-text-secondary'
+    default: return 'text-status-warning'
+  }
+}
+
 export default function BriefingPage() {
   const { data: session } = useSession()
   const { addToast } = useToast()
@@ -38,6 +50,7 @@ export default function BriefingPage() {
   const [briefingLoading, setBriefingLoading] = useState(false)
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set())
   const [scanningId, setScanningId] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
 
   const fetchData = useCallback(async () => {
     try {
@@ -57,16 +70,22 @@ export default function BriefingPage() {
     let cancelled = false
     async function syncAndLoad() {
       await fetchData()
+      setSyncing(true)
       try {
         const res = await fetch('/api/agents/sync', { method: 'POST' })
         if (res.ok && !cancelled) {
           const result = await res.json()
           if (result.totalCreated > 0) {
             fetchData()
-            addToast(`${result.totalCreated} new item${result.totalCreated === 1 ? '' : 's'} from your agents`, 'success')
+            const triageMsg = result.totalTriaged > 0 ? ` (${result.totalTriaged} AI-triaged)` : ''
+            addToast(`${result.totalCreated} new item${result.totalCreated === 1 ? '' : 's'} from your agents${triageMsg}`, 'success')
+          }
+          if (result.insights?.length > 0) {
+            result.insights.forEach((insight: string) => addToast(insight, 'info'))
           }
         }
       } catch { /* sync failed silently */ }
+      setSyncing(false)
     }
     syncAndLoad()
     return () => { cancelled = true }
@@ -138,8 +157,8 @@ export default function BriefingPage() {
   if (loading) {
     return (
       <div className="p-6 space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <StatSkeleton /><StatSkeleton /><StatSkeleton />
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <StatSkeleton /><StatSkeleton /><StatSkeleton /><StatSkeleton />
         </div>
         <CardSkeleton /><CardSkeleton />
       </div>
@@ -153,11 +172,12 @@ export default function BriefingPage() {
   return (
     <div className="p-6 space-y-6">
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         {[
           { label: 'Active Agents', value: data.stats.activeAgents, icon: Bot, color: 'text-accent-teal' },
           { label: 'Content Ready', value: data.stats.contentReady, icon: FileText, color: data.stats.contentReady > 0 ? 'text-status-warning' : 'text-accent-teal' },
           { label: 'Activity Today', value: data.stats.activityToday, icon: Activity, color: 'text-accent-teal' },
+          { label: 'Goals Active', value: data.stats.goalsSet, icon: Target, color: data.stats.goalsSet > 0 ? 'text-accent-teal' : 'text-status-warning' },
         ].map(stat => {
           const Icon = stat.icon
           return (
@@ -174,12 +194,32 @@ export default function BriefingPage() {
         })}
       </div>
 
+      {/* Cross-Agent Insights */}
+      {data.insights && data.insights.length > 0 && (
+        <div className="card p-4 border-l-4 border-l-status-warning">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="w-4 h-4 text-status-warning" />
+            <h4 className="font-heading text-sm text-text-primary">Cross-Agent Intelligence</h4>
+          </div>
+          <div className="space-y-1">
+            {data.insights.map((insight, i) => (
+              <p key={i} className="text-sm text-text-secondary">{insight}</p>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* AI Briefing */}
       <div className="card p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-accent-teal" />
             <h3 className="font-heading text-lg text-text-primary">AI Briefing</h3>
+            {syncing && (
+              <span className="text-xs text-text-secondary flex items-center gap-1">
+                <RefreshCw className="w-3 h-3 animate-spin" /> Syncing agents...
+              </span>
+            )}
           </div>
           <button
             onClick={generateBriefing}
@@ -198,15 +238,16 @@ export default function BriefingPage() {
             {briefing.split('\n').map((line, i) => {
               const trimmed = line.trim()
               if (!trimmed) return null
-              // Render section headers (PRIORITY ACTIONS, AGENT STATUS, etc.)
-              if (/^[A-Z][A-Z\s]{3,}$/.test(trimmed)) {
+              if (/^[A-Z][A-Z\s-]{3,}$/.test(trimmed)) {
                 return <h4 key={i} className="font-heading text-accent-teal text-sm pt-2 first:pt-0">{trimmed}</h4>
               }
               return <p key={i} className="text-text-primary">{trimmed}</p>
             })}
           </div>
         ) : (
-          <p className="text-sm text-text-secondary">Click &ldquo;Generate Briefing&rdquo; for your Chief of Staff to analyze your agents, review pending content, and tell you exactly what needs your attention.</p>
+          <p className="text-sm text-text-secondary">
+            Click &ldquo;Generate Briefing&rdquo; for your Chief of Staff to analyze your agents against your goals, triage pending content, detect cross-agent patterns, and tell you exactly what needs your attention.
+          </p>
         )}
       </div>
 
@@ -234,6 +275,7 @@ export default function BriefingPage() {
                   return (
                     <div key={item.id} className={cn(
                       'p-3 rounded-lg border transition-colors',
+                      item.suggestedAction === 'escalate' ? 'border-l-4 border-l-status-danger border-surface-border bg-status-danger/5' :
                       item.urgency === 'high' ? 'border-l-4 border-l-status-danger border-surface-border' : 'border-surface-border'
                     )}>
                       <div className="flex items-start gap-3">
@@ -241,13 +283,27 @@ export default function BriefingPage() {
                           <Icon className="w-4 h-4 text-accent-teal" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
                             <span className="text-xs text-text-secondary">{item.agent?.name}</span>
                             <Badge variant={getUrgencyBadgeVariant(item.urgency)} size="sm">{item.urgency}</Badge>
+                            {item.suggestedAction && (
+                              <span className={cn('text-xs font-medium flex items-center gap-0.5', getSuggestedActionColor(item.suggestedAction))}>
+                                <Zap className="w-3 h-3" />
+                                {item.suggestedAction}
+                              </span>
+                            )}
+                            {item.relevanceScore !== null && item.relevanceScore !== undefined && (
+                              <span className="text-xs text-text-secondary">{item.relevanceScore}/10</span>
+                            )}
                             <span className="text-xs text-text-secondary ml-auto">{formatRelativeTime(item.createdAt)}</span>
                           </div>
                           <p className="text-sm font-medium text-text-primary">{item.action}</p>
                           <p className="text-xs text-text-secondary mt-1 line-clamp-2">{item.detail}</p>
+                          {item.goalAlignment && item.goalAlignment !== 'unknown' && item.goalAlignment !== 'Could not assess' && (
+                            <p className="text-xs text-accent-teal mt-1 flex items-center gap-1">
+                              <Target className="w-3 h-3" /> {item.goalAlignment}
+                            </p>
+                          )}
                         </div>
                         <div className="flex gap-1.5 shrink-0">
                           <button
