@@ -15,7 +15,7 @@ import {
   Users,
   AlertCircle,
 } from 'lucide-react'
-import { cn, formatRelativeTime, getUrgencyBadgeVariant } from '@/lib/utils'
+import { cn, formatRelativeTime } from '@/lib/utils'
 import { useToast } from '@/contexts/ToastContext'
 import Badge from '@/components/ui/Badge'
 import { CardSkeleton } from '@/components/ui/SkeletonLoader'
