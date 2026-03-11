@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/calendar.readonly',
   'https://www.googleapis.com/auth/userinfo.email',
 ]
@@ -265,4 +266,122 @@ export async function fetchUpcomingEvents(userId: string, hours = 4): Promise<Ca
     status: event.status || 'confirmed',
     attendees: (event.attendees || []).map(a => a.email || '').filter(Boolean),
   }))
+}
+
+// --- Email Body ---
+
+export async function fetchEmailBody(userId: string, messageId: string): Promise<string> {
+  const auth = await getAuthedClient(userId)
+  if (!auth) return ''
+
+  const gmail = google.gmail({ version: 'v1', auth })
+  const detail = await gmail.users.messages.get({
+    userId: 'me',
+    id: messageId,
+    format: 'full',
+  })
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function extractText(payload: any): string {
+    if (!payload) return ''
+    if (payload.body?.data) {
+      return Buffer.from(payload.body.data, 'base64url').toString('utf-8')
+    }
+    if (payload.parts) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const textPart = payload.parts.find((p: any) => p.mimeType === 'text/plain')
+      if (textPart?.body?.data) return Buffer.from(textPart.body.data, 'base64url').toString('utf-8')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const htmlPart = payload.parts.find((p: any) => p.mimeType === 'text/html')
+      if (htmlPart?.body?.data) {
+        const html = Buffer.from(htmlPart.body.data, 'base64url').toString('utf-8')
+        return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+      }
+      for (const part of payload.parts) {
+        if (part.parts) {
+          const nested = extractText(part)
+          if (nested) return nested
+        }
+      }
+    }
+    return detail.data.snippet || ''
+  }
+
+  return extractText(detail.data.payload)
+}
+
+// --- Send Email ---
+
+export async function sendEmailToSelf(userId: string, subject: string, body: string): Promise<boolean> {
+  const auth = await getAuthedClient(userId)
+  if (!auth) return false
+
+  const account = await prisma.googleAccount.findUnique({ where: { userId } })
+  if (!account) return false
+
+  const gmail = google.gmail({ version: 'v1', auth })
+
+  const rawMessage = [
+    `To: ${account.email}`,
+    `Subject: ${subject}`,
+    'Content-Type: text/html; charset=utf-8',
+    '',
+    body,
+  ].join('\r\n')
+
+  const encoded = Buffer.from(rawMessage).toString('base64url')
+
+  await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw: encoded },
+  })
+
+  return true
+}
+
+// --- Search Emails by Senders ---
+
+export async function fetchEmailsFromSenders(userId: string, senderEmails: string[], maxResults = 10): Promise<EmailItem[]> {
+  const auth = await getAuthedClient(userId)
+  if (!auth) return []
+
+  const gmail = google.gmail({ version: 'v1', auth })
+
+  const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+  const dateStr = `${twoWeeksAgo.getFullYear()}/${twoWeeksAgo.getMonth() + 1}/${twoWeeksAgo.getDate()}`
+  const fromQuery = senderEmails.slice(0, 5).map(e => `from:${e}`).join(' OR ')
+
+  const res = await gmail.users.messages.list({
+    userId: 'me',
+    q: `(${fromQuery}) after:${dateStr}`,
+    maxResults,
+  })
+
+  const messages = res.data.messages || []
+  const emails: EmailItem[] = []
+
+  for (const msg of messages.slice(0, maxResults)) {
+    try {
+      const detail = await gmail.users.messages.get({
+        userId: 'me',
+        id: msg.id!,
+        format: 'metadata',
+        metadataHeaders: ['From', 'Subject', 'Date'],
+      })
+      const headers = detail.data.payload?.headers || []
+      const getHeader = (name: string) => headers.find(h => h.name === name)?.value || ''
+      emails.push({
+        id: msg.id!,
+        from: getHeader('From'),
+        subject: getHeader('Subject') || '(no subject)',
+        snippet: detail.data.snippet || '',
+        date: getHeader('Date'),
+        isUnread: (detail.data.labelIds || []).includes('UNREAD'),
+        labels: detail.data.labelIds || [],
+        threadId: detail.data.threadId || '',
+      })
+    } catch { /* skip */ }
+  }
+
+  return emails
 }

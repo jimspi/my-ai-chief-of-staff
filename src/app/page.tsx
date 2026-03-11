@@ -14,6 +14,8 @@ import {
   MapPin,
   Users,
   AlertCircle,
+  Reply,
+  FileText,
 } from 'lucide-react'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import { useToast } from '@/contexts/ToastContext'
@@ -30,6 +32,9 @@ export default function BriefingPage() {
   const [briefingLoading, setBriefingLoading] = useState(false)
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set())
   const [scanningId, setScanningId] = useState<string | null>(null)
+  const [draftingIds, setDraftingIds] = useState<Set<string>>(new Set())
+  const [preppingIds, setPreppingIds] = useState<Set<string>>(new Set())
+  const [prepData, setPrepData] = useState<Record<string, string>>({})
 
   const fetchData = useCallback(async () => {
     try {
@@ -105,6 +110,54 @@ export default function BriefingPage() {
     }
   }
 
+  async function handleDraftReply(emailItemId: string) {
+    setDraftingIds(prev => new Set(prev).add(emailItemId))
+    try {
+      const res = await fetch('/api/ai/reply-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailItemId }),
+      })
+      if (res.ok) {
+        addToast('Reply draft sent to your inbox', 'success')
+      } else {
+        const err = await res.json()
+        addToast(err.error || 'Failed to generate draft', 'error')
+      }
+    } catch {
+      addToast('Failed to generate draft', 'error')
+    } finally {
+      setDraftingIds(prev => { const s = new Set(prev); s.delete(emailItemId); return s })
+    }
+  }
+
+  async function handleMeetingPrep(calendarItemId: string) {
+    // Toggle off if already showing
+    if (prepData[calendarItemId]) {
+      setPrepData(prev => { const n = { ...prev }; delete n[calendarItemId]; return n })
+      return
+    }
+    setPreppingIds(prev => new Set(prev).add(calendarItemId))
+    try {
+      const res = await fetch('/api/ai/meeting-prep', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ calendarItemId }),
+      })
+      if (res.ok) {
+        const result = await res.json()
+        setPrepData(prev => ({ ...prev, [calendarItemId]: result.prep }))
+      } else {
+        const err = await res.json()
+        addToast(err.error || 'Failed to generate prep', 'error')
+      }
+    } catch {
+      addToast('Failed to generate meeting prep', 'error')
+    } finally {
+      setPreppingIds(prev => { const s = new Set(prev); s.delete(calendarItemId); return s })
+    }
+  }
+
   async function generateBriefing() {
     setBriefingLoading(true)
     try {
@@ -141,12 +194,10 @@ export default function BriefingPage() {
   const calendarAgent = data.agents.find((a: Agent) => a.category === 'Calendar')
   const googleConnected = gmailAgent || calendarAgent
 
-  // Greeting based on time of day
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
   const firstName = session?.user?.name?.split(' ')[0] || ''
 
-  // Count high urgency across all items
   const highUrgencyCount = [...(data.emailItems || []), ...(data.calendarItems || [])].filter(i => i.urgency === 'high').length
 
   return (
@@ -176,7 +227,7 @@ export default function BriefingPage() {
         </button>
       </div>
 
-      {/* AI Briefing (expandable, only shown when generated) */}
+      {/* AI Briefing */}
       {briefing && (
         <div className="card p-5 border-l-4 border-l-accent-teal">
           <div className="flex items-center gap-2 mb-3">
@@ -244,66 +295,107 @@ export default function BriefingPage() {
             <div className="divide-y divide-surface-border">
               {data.calendarItems.map((item: ContentItem) => {
                 const processing = processingIds.has(item.id)
+                const prepping = preppingIds.has(item.id)
                 const timeMatch = item.detail.match(/Time: (.+)/)
                 const locationMatch = item.detail.match(/Location: (.+)/)
                 const attendeesMatch = item.detail.match(/Attendees: (.+)/)
                 const eventName = item.detail.split('\n')[0]
+                const hasAttendees = !!attendeesMatch
                 return (
-                  <div key={item.id} className={cn(
-                    'px-4 py-3 flex items-start gap-4 hover:bg-surface-bg/50 transition-colors',
-                    item.urgency === 'high' && 'border-l-3 border-l-status-danger'
-                  )}>
-                    {/* Time column */}
-                    <div className="w-20 shrink-0 pt-0.5">
-                      {timeMatch ? (
-                        <p className="text-sm font-medium text-text-primary">{timeMatch[1].split(' - ')[0]}</p>
-                      ) : (
-                        <p className="text-xs text-text-secondary">All day</p>
-                      )}
-                    </div>
-                    {/* Event details */}
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-text-primary">{eventName}</p>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
-                        {timeMatch && timeMatch[1].includes(' - ') && (
-                          <div className="flex items-center gap-1">
-                            <Clock className="w-3 h-3 text-text-secondary" />
-                            <span className="text-xs text-text-secondary">{timeMatch[1]}</span>
-                          </div>
-                        )}
-                        {locationMatch && (
-                          <div className="flex items-center gap-1">
-                            <MapPin className="w-3 h-3 text-text-secondary" />
-                            <span className="text-xs text-text-secondary">{locationMatch[1]}</span>
-                          </div>
-                        )}
-                        {attendeesMatch && (
-                          <div className="flex items-center gap-1">
-                            <Users className="w-3 h-3 text-text-secondary" />
-                            <span className="text-xs text-text-secondary line-clamp-1">{attendeesMatch[1]}</span>
-                          </div>
+                  <div key={item.id}>
+                    <div className={cn(
+                      'px-4 py-3 flex items-start gap-4 hover:bg-surface-bg/50 transition-colors',
+                      item.urgency === 'high' && 'border-l-3 border-l-status-danger'
+                    )}>
+                      {/* Time column */}
+                      <div className="w-20 shrink-0 pt-0.5">
+                        {timeMatch ? (
+                          <p className="text-sm font-medium text-text-primary">{timeMatch[1].split(' - ')[0]}</p>
+                        ) : (
+                          <p className="text-xs text-text-secondary">All day</p>
                         )}
                       </div>
+                      {/* Event details */}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-text-primary">{eventName}</p>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+                          {timeMatch && timeMatch[1].includes(' - ') && (
+                            <div className="flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-text-secondary" />
+                              <span className="text-xs text-text-secondary">{timeMatch[1]}</span>
+                            </div>
+                          )}
+                          {locationMatch && (
+                            <div className="flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-text-secondary" />
+                              <span className="text-xs text-text-secondary">{locationMatch[1]}</span>
+                            </div>
+                          )}
+                          {attendeesMatch && (
+                            <div className="flex items-center gap-1">
+                              <Users className="w-3 h-3 text-text-secondary" />
+                              <span className="text-xs text-text-secondary line-clamp-1">{attendeesMatch[1]}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {/* Actions */}
+                      <div className="flex gap-1 shrink-0">
+                        {hasAttendees && (
+                          <button
+                            onClick={() => handleMeetingPrep(item.id)}
+                            disabled={prepping}
+                            className={cn(
+                              'p-1.5 rounded-button transition-colors',
+                              prepData[item.id]
+                                ? 'bg-accent-teal/10 text-accent-teal'
+                                : 'text-text-secondary hover:bg-accent-teal/10 hover:text-accent-teal'
+                            )}
+                            title="Meeting prep"
+                          >
+                            {prepping ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleAction(item.id, 'approve')}
+                          disabled={processing}
+                          className="p-1.5 rounded-button text-text-secondary hover:bg-status-success/10 hover:text-status-success transition-colors"
+                          title="Approve"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleAction(item.id, 'deny')}
+                          disabled={processing}
+                          className="p-1.5 rounded-button text-text-secondary hover:bg-status-danger/10 hover:text-status-danger transition-colors"
+                          title="Dismiss"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                    {/* Actions */}
-                    <div className="flex gap-1 shrink-0">
-                      <button
-                        onClick={() => handleAction(item.id, 'approve')}
-                        disabled={processing}
-                        className="p-1.5 rounded-button text-text-secondary hover:bg-status-success/10 hover:text-status-success transition-colors"
-                        title="Approve"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleAction(item.id, 'deny')}
-                        disabled={processing}
-                        className="p-1.5 rounded-button text-text-secondary hover:bg-status-danger/10 hover:text-status-danger transition-colors"
-                        title="Dismiss"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                    {/* Meeting prep panel */}
+                    {prepData[item.id] && (
+                      <div className="px-4 pb-3 ml-24">
+                        <div className="p-3 rounded-lg bg-accent-teal/5 border border-accent-teal/20 text-sm text-text-primary leading-relaxed">
+                          <div className="flex items-center gap-1.5 mb-2">
+                            <FileText className="w-3.5 h-3.5 text-accent-teal" />
+                            <span className="text-xs font-heading text-accent-teal uppercase tracking-wide">Meeting Prep</span>
+                          </div>
+                          {prepData[item.id].split('\n').map((line, i) => {
+                            const trimmed = line.trim()
+                            if (!trimmed) return null
+                            if (trimmed.startsWith('**') && trimmed.endsWith('**')) {
+                              return <p key={i} className="font-medium mt-2 first:mt-0">{trimmed.replace(/\*\*/g, '')}</p>
+                            }
+                            if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+                              return <p key={i} className="ml-3 text-text-secondary">&bull; {trimmed.slice(2)}</p>
+                            }
+                            return <p key={i} className="text-text-secondary">{trimmed}</p>
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -338,8 +430,8 @@ export default function BriefingPage() {
             <div className="divide-y divide-surface-border">
               {data.emailItems.map((item: ContentItem) => {
                 const processing = processingIds.has(item.id)
+                const drafting = draftingIds.has(item.id)
                 const isFollowUp = item.action.startsWith('Follow up')
-                // Parse sender from detail
                 const fromMatch = item.detail.match(/From: (.+)/)
                 const subjectMatch = item.detail.match(/Subject: (.+)/)
                 const sender = fromMatch ? fromMatch[1].replace(/<.*>/, '').trim() : ''
@@ -364,6 +456,14 @@ export default function BriefingPage() {
                       <p className="text-xs text-text-secondary mt-0.5 line-clamp-1">{item.detail.split('\n\n')[1] || ''}</p>
                     </div>
                     <div className="flex gap-1 shrink-0">
+                      <button
+                        onClick={() => handleDraftReply(item.id)}
+                        disabled={drafting}
+                        className="p-1.5 rounded-button text-text-secondary hover:bg-accent-teal/10 hover:text-accent-teal transition-colors"
+                        title="Draft reply (sent to your inbox)"
+                      >
+                        {drafting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Reply className="w-3.5 h-3.5" />}
+                      </button>
                       <button
                         onClick={() => handleAction(item.id, 'approve')}
                         disabled={processing}
