@@ -87,7 +87,8 @@ export async function fetchUnreadEmails(userId: string, maxResults = 15): Promis
 
   const res = await gmail.users.messages.list({
     userId: 'me',
-    q: `in:inbox is:unread after:${dateStr} -category:promotions -category:social -category:updates`,
+    labelIds: ['INBOX', 'UNREAD', 'CATEGORY_PRIMARY'],
+    q: `after:${dateStr}`,
     maxResults,
   })
 
