@@ -17,6 +17,9 @@ import {
   Search,
   ExternalLink,
   Calendar,
+  Clock,
+  MapPin,
+  Users,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn, formatRelativeTime, getUrgencyBadgeVariant, getTypeBadgeVariant, getStatusDotColor } from '@/lib/utils'
@@ -158,6 +161,8 @@ export default function BriefingPage() {
 
   const googleCategories = ['Gmail', 'Calendar']
   const connectedAgents = data.agents.filter((a: Agent) => a.externalUrl || googleCategories.includes(a.category))
+  const gmailAgent = data.agents.find((a: Agent) => a.category === 'Gmail')
+  const calendarAgent = data.agents.find((a: Agent) => a.category === 'Calendar')
 
   return (
     <div className="p-6 space-y-6">
@@ -237,23 +242,193 @@ export default function BriefingPage() {
         </div>
       )}
 
+      {/* Email & Calendar */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Email */}
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Mail className="w-5 h-5 text-accent-teal" />
+              <h3 className="font-heading text-lg text-text-primary">Email</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              {gmailAgent?.lastScannedAt && (
+                <span className="text-xs text-text-secondary">{formatRelativeTime(gmailAgent.lastScannedAt)}</span>
+              )}
+              {gmailAgent && (
+                <button
+                  onClick={() => handleScan(gmailAgent.id)}
+                  disabled={scanningId !== null}
+                  className="btn-primary text-sm py-1.5 px-3 flex items-center gap-1.5"
+                >
+                  <RefreshCw className={cn('w-3.5 h-3.5', scanningId === gmailAgent.id && 'animate-spin')} />
+                  {scanningId === gmailAgent.id ? 'Scanning...' : 'Scan'}
+                </button>
+              )}
+            </div>
+          </div>
+          {!gmailAgent ? (
+            <p className="text-sm text-text-secondary py-4 text-center">Connect Google in <Link href="/settings" className="text-accent-teal hover:underline">Settings</Link> to see emails.</p>
+          ) : data.emailItems.length === 0 ? (
+            <p className="text-sm text-text-secondary py-4 text-center">No emails need attention.</p>
+          ) : (
+            <div className="space-y-2">
+              {data.emailItems.map((item: ContentItem) => {
+                const processing = processingIds.has(item.id)
+                const isFollowUp = item.action.startsWith('Follow up')
+                return (
+                  <div key={item.id} className={cn(
+                    'p-3 rounded-lg border transition-colors',
+                    item.urgency === 'high' ? 'border-l-4 border-l-status-danger border-surface-border' : 'border-surface-border'
+                  )}>
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <Badge variant={isFollowUp ? 'warning' : getUrgencyBadgeVariant(item.urgency)} size="sm">
+                            {isFollowUp ? 'follow-up' : item.urgency}
+                          </Badge>
+                          {item.suggestedAction && (
+                            <span className={cn('text-xs px-1.5 py-0.5 rounded', SUGGESTED_ACTION_COLORS[item.suggestedAction] || '')}>
+                              {item.suggestedAction}
+                            </span>
+                          )}
+                          <span className="text-xs text-text-secondary ml-auto">{formatRelativeTime(item.createdAt)}</span>
+                        </div>
+                        <p className="text-sm font-medium text-text-primary">{item.action}</p>
+                        <p className="text-xs text-text-secondary mt-1 line-clamp-2">{item.detail}</p>
+                      </div>
+                      <div className="flex gap-1.5 shrink-0">
+                        <button
+                          onClick={() => handleAction(item.id, 'approve')}
+                          disabled={processing}
+                          className="p-1.5 rounded-button bg-status-success/10 text-status-success hover:bg-status-success/20 transition-colors"
+                          title="Approve & Copy"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleAction(item.id, 'deny')}
+                          disabled={processing}
+                          className="p-1.5 rounded-button bg-status-danger/10 text-status-danger hover:bg-status-danger/20 transition-colors"
+                          title="Dismiss"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Calendar */}
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-accent-teal" />
+              <h3 className="font-heading text-lg text-text-primary">Today&apos;s Schedule</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              {calendarAgent?.lastScannedAt && (
+                <span className="text-xs text-text-secondary">{formatRelativeTime(calendarAgent.lastScannedAt)}</span>
+              )}
+              {calendarAgent && (
+                <button
+                  onClick={() => handleScan(calendarAgent.id)}
+                  disabled={scanningId !== null}
+                  className="btn-primary text-sm py-1.5 px-3 flex items-center gap-1.5"
+                >
+                  <RefreshCw className={cn('w-3.5 h-3.5', scanningId === calendarAgent.id && 'animate-spin')} />
+                  {scanningId === calendarAgent.id ? 'Scanning...' : 'Scan'}
+                </button>
+              )}
+            </div>
+          </div>
+          {!calendarAgent ? (
+            <p className="text-sm text-text-secondary py-4 text-center">Connect Google in <Link href="/settings" className="text-accent-teal hover:underline">Settings</Link> to see your calendar.</p>
+          ) : data.calendarItems.length === 0 ? (
+            <p className="text-sm text-text-secondary py-4 text-center">No events today.</p>
+          ) : (
+            <div className="space-y-2">
+              {data.calendarItems.map((item: ContentItem) => {
+                const processing = processingIds.has(item.id)
+                // Parse time and location from detail
+                const timeMatch = item.detail.match(/Time: (.+)/)
+                const locationMatch = item.detail.match(/Location: (.+)/)
+                const attendeesMatch = item.detail.match(/Attendees: (.+)/)
+                return (
+                  <div key={item.id} className={cn(
+                    'p-3 rounded-lg border transition-colors',
+                    item.urgency === 'high' ? 'border-l-4 border-l-status-danger border-surface-border' : 'border-surface-border'
+                  )}>
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Badge variant={getUrgencyBadgeVariant(item.urgency)} size="sm">{item.urgency}</Badge>
+                          <span className="text-xs text-text-secondary ml-auto">{formatRelativeTime(item.createdAt)}</span>
+                        </div>
+                        <p className="text-sm font-medium text-text-primary">{item.detail.split('\n')[0]}</p>
+                        {timeMatch && (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Clock className="w-3 h-3 text-text-secondary" />
+                            <span className="text-xs text-text-secondary">{timeMatch[1]}</span>
+                          </div>
+                        )}
+                        {locationMatch && (
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <MapPin className="w-3 h-3 text-text-secondary" />
+                            <span className="text-xs text-text-secondary">{locationMatch[1]}</span>
+                          </div>
+                        )}
+                        {attendeesMatch && (
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <Users className="w-3 h-3 text-text-secondary" />
+                            <span className="text-xs text-text-secondary line-clamp-1">{attendeesMatch[1]}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-1.5 shrink-0">
+                        <button
+                          onClick={() => handleAction(item.id, 'approve')}
+                          disabled={processing}
+                          className="p-1.5 rounded-button bg-status-success/10 text-status-success hover:bg-status-success/20 transition-colors"
+                          title="Approve & Copy"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleAction(item.id, 'deny')}
+                          disabled={processing}
+                          className="p-1.5 rounded-button bg-status-danger/10 text-status-danger hover:bg-status-danger/20 transition-colors"
+                          title="Dismiss"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Two-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: Content ready + Activity */}
+        {/* Left: Other content + Activity */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Content Ready */}
-          <div className="card p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-heading text-lg text-text-primary">Content Ready for Review</h3>
-              {data.content.length > 0 && (
+          {/* Other Content Ready */}
+          {data.content.length > 0 && (
+            <div className="card p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-heading text-lg text-text-primary">Other Items for Review</h3>
                 <Link href="/queue" className="text-sm text-accent-teal hover:underline flex items-center gap-1">
                   View all <ChevronRight className="w-3.5 h-3.5" />
                 </Link>
-              )}
-            </div>
-            {data.content.length === 0 ? (
-              <p className="text-sm text-text-secondary py-4 text-center">All clear — no content awaiting review.</p>
-            ) : (
+              </div>
               <div className="space-y-3">
                 {data.content.slice(0, 4).map((item: ContentItem) => {
                   const Icon = getAgentIcon(item.agent?.icon || '')
@@ -310,8 +485,8 @@ export default function BriefingPage() {
                   )
                 })}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Recent Activity */}
           <div className="card p-5">
@@ -340,9 +515,9 @@ export default function BriefingPage() {
           </div>
         </div>
 
-        {/* Right: News Agent / Agent list */}
+        {/* Right: Connected agents + Agent list */}
         <div className="space-y-6">
-          {connectedAgents.map((agent: Agent) => {
+          {connectedAgents.filter((a: Agent) => a.category !== 'Gmail' && a.category !== 'Calendar').map((agent: Agent) => {
             const Icon = getAgentIcon(agent.icon)
             const isScanning = scanningId === agent.id
             return (

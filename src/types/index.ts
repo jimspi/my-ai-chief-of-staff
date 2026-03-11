@@ -75,6 +75,8 @@ export interface BriefingData {
     activityToday: number
   }
   content: ContentItem[]
+  emailItems: ContentItem[]
+  calendarItems: ContentItem[]
   agents: Agent[]
   recentActivity: ActivityLogEntry[]
   insights: string[]

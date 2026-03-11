@@ -64,7 +64,12 @@ export async function GET() {
       insights.push(`${highUrgencyCount} high-urgency items building up`)
     }
 
-    return NextResponse.json({ stats, content, agents, recentActivity, insights })
+    // Separate email and calendar items from other content
+    const emailItems = content.filter(c => c.agent?.category === 'Gmail')
+    const calendarItems = content.filter(c => c.agent?.category === 'Calendar')
+    const otherContent = content.filter(c => c.agent?.category !== 'Gmail' && c.agent?.category !== 'Calendar')
+
+    return NextResponse.json({ stats, content: otherContent, emailItems, calendarItems, agents, recentActivity, insights })
   } catch (error) {
     if (error instanceof AuthError) return NextResponse.json({ error: error.message }, { status: 401 })
     console.error('Dashboard API error:', error)
