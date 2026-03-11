@@ -29,5 +29,14 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ synced: agents.length, results })
+  // Delete pending items older than 48 hours
+  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000)
+  const { count: expired } = await prisma.approvalItem.deleteMany({
+    where: {
+      status: 'pending',
+      createdAt: { lt: cutoff },
+    },
+  })
+
+  return NextResponse.json({ synced: agents.length, results, expired })
 }

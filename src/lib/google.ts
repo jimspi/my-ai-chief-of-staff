@@ -82,9 +82,12 @@ export async function fetchUnreadEmails(userId: string, maxResults = 15): Promis
 
   const gmail = google.gmail({ version: 'v1', auth })
 
+  const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+  const dateStr = `${twoDaysAgo.getFullYear()}/${twoDaysAgo.getMonth() + 1}/${twoDaysAgo.getDate()}`
+
   const res = await gmail.users.messages.list({
     userId: 'me',
-    q: 'is:unread -category:promotions -category:social -category:updates',
+    q: `in:inbox is:unread after:${dateStr} -category:promotions -category:social -category:updates`,
     maxResults,
   })
 

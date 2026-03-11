@@ -86,10 +86,20 @@ export async function orchestrateSync(userId: string, apiKey?: string): Promise<
     }
   }
 
-  // 3. Detect cross-agent patterns
+  // 3. Delete pending items older than 48 hours
+  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000)
+  await prisma.approvalItem.deleteMany({
+    where: {
+      agent: { userId },
+      status: 'pending',
+      createdAt: { lt: cutoff },
+    },
+  })
+
+  // 4. Detect cross-agent patterns
   const insights = await detectPatterns(userId)
 
-  // 4. Update agent stats
+  // 5. Update agent stats
   await updateAgentStats(userId)
 
   return { synced: agents.length, totalCreated, triaged, insights, results }
