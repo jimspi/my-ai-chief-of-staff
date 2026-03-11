@@ -4,41 +4,22 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import {
-  Bot,
-  FileText,
-  Activity,
   Sparkles,
   RefreshCw,
   Check,
   X,
-  ChevronRight,
-  Newspaper,
   Mail,
-  Search,
-  ExternalLink,
   Calendar,
   Clock,
   MapPin,
   Users,
+  AlertCircle,
 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
-import { cn, formatRelativeTime, getUrgencyBadgeVariant, getTypeBadgeVariant, getStatusDotColor } from '@/lib/utils'
+import { cn, formatRelativeTime, getUrgencyBadgeVariant } from '@/lib/utils'
 import { useToast } from '@/contexts/ToastContext'
 import Badge from '@/components/ui/Badge'
-import { StatSkeleton, CardSkeleton } from '@/components/ui/SkeletonLoader'
-import type { BriefingData, ContentItem, ActivityLogEntry, Agent } from '@/types'
-
-const SUGGESTED_ACTION_COLORS: Record<string, string> = {
-  approve: 'bg-status-success/10 text-status-success',
-  review: 'bg-status-warning/10 text-status-warning',
-  dismiss: 'bg-surface-bg text-text-secondary',
-  escalate: 'bg-status-danger/10 text-status-danger',
-}
-
-const ICON_MAP: Record<string, LucideIcon> = { Newspaper, Mail, Search, Calendar }
-function getAgentIcon(iconName: string): LucideIcon {
-  return ICON_MAP[iconName] || Bot
-}
+import { CardSkeleton } from '@/components/ui/SkeletonLoader'
+import type { BriefingData, ContentItem, Agent } from '@/types'
 
 export default function BriefingPage() {
   const { data: session } = useSession()
@@ -63,7 +44,6 @@ export default function BriefingPage() {
     }
   }, [])
 
-  // Auto-sync all connected agents on page load, then refresh data
   useEffect(() => {
     let cancelled = false
     async function syncAndLoad() {
@@ -74,7 +54,7 @@ export default function BriefingPage() {
           const result = await res.json()
           if (result.totalCreated > 0) {
             fetchData()
-            addToast(`${result.totalCreated} new item${result.totalCreated === 1 ? '' : 's'} from your agents`, 'success')
+            addToast(`${result.totalCreated} new item${result.totalCreated === 1 ? '' : 's'} synced`, 'success')
           }
         }
       } catch { /* sync failed silently */ }
@@ -86,7 +66,8 @@ export default function BriefingPage() {
   async function handleAction(id: string, action: 'approve' | 'deny') {
     setProcessingIds(prev => new Set(prev).add(id))
     try {
-      const item = data?.content.find(c => c.id === id)
+      const allItems = [...(data?.emailItems || []), ...(data?.calendarItems || []), ...(data?.content || [])]
+      const item = allItems.find(c => c.id === id)
       const res = await fetch(`/api/approvals/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -148,10 +129,7 @@ export default function BriefingPage() {
 
   if (loading) {
     return (
-      <div className="p-6 space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <StatSkeleton /><StatSkeleton /><StatSkeleton />
-        </div>
+      <div className="max-w-4xl mx-auto p-6 space-y-6">
         <CardSkeleton /><CardSkeleton />
       </div>
     )
@@ -159,254 +137,172 @@ export default function BriefingPage() {
 
   if (!data) return <div className="p-6 text-text-secondary">Failed to load data.</div>
 
-  const googleCategories = ['Gmail', 'Calendar']
-  const connectedAgents = data.agents.filter((a: Agent) => a.externalUrl || googleCategories.includes(a.category))
   const gmailAgent = data.agents.find((a: Agent) => a.category === 'Gmail')
   const calendarAgent = data.agents.find((a: Agent) => a.category === 'Calendar')
+  const googleConnected = gmailAgent || calendarAgent
+
+  // Greeting based on time of day
+  const hour = new Date().getHours()
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+  const firstName = session?.user?.name?.split(' ')[0] || ''
+
+  // Count high urgency across all items
+  const highUrgencyCount = [...(data.emailItems || []), ...(data.calendarItems || [])].filter(i => i.urgency === 'high').length
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {[
-          { label: 'Active Agents', value: data.stats.activeAgents, icon: Bot, color: 'text-accent-teal' },
-          { label: 'Content Ready', value: data.stats.contentReady, icon: FileText, color: data.stats.contentReady > 0 ? 'text-status-warning' : 'text-accent-teal' },
-          { label: 'Activity Today', value: data.stats.activityToday, icon: Activity, color: 'text-accent-teal' },
-        ].map(stat => {
-          const Icon = stat.icon
-          return (
-            <div key={stat.label} className="card p-4 flex items-center gap-4">
-              <div className={cn('p-2.5 rounded-lg bg-surface-bg', stat.color)}>
-                <Icon className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-2xl font-heading text-text-primary">{stat.value}</p>
-                <p className="text-sm text-text-secondary">{stat.label}</p>
-              </div>
-            </div>
-          )
-        })}
+    <div className="max-w-4xl mx-auto p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-heading text-text-primary">{greeting}{firstName ? `, ${firstName}` : ''}</h1>
+          <p className="text-sm text-text-secondary mt-1">
+            {highUrgencyCount > 0 ? (
+              <span className="text-status-danger">You have {highUrgencyCount} urgent item{highUrgencyCount === 1 ? '' : 's'} needing attention</span>
+            ) : (
+              "Here\u2019s what\u2019s on your plate"
+            )}
+          </p>
+        </div>
+        <button
+          onClick={generateBriefing}
+          disabled={briefingLoading}
+          className="btn-primary text-sm py-2 px-4 flex items-center gap-2"
+        >
+          {briefingLoading ? (
+            <><RefreshCw className="w-4 h-4 animate-spin" /> Generating...</>
+          ) : (
+            <><Sparkles className="w-4 h-4" /> AI Briefing</>
+          )}
+        </button>
       </div>
 
-      {/* AI Briefing */}
-      <div className="card p-5">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-accent-teal" />
-            <h3 className="font-heading text-lg text-text-primary">AI Briefing</h3>
+      {/* AI Briefing (expandable, only shown when generated) */}
+      {briefing && (
+        <div className="card p-5 border-l-4 border-l-accent-teal">
+          <div className="flex items-center gap-2 mb-3">
+            <Sparkles className="w-4 h-4 text-accent-teal" />
+            <h3 className="font-heading text-sm text-accent-teal">AI BRIEFING</h3>
           </div>
-          <button
-            onClick={generateBriefing}
-            disabled={briefingLoading}
-            className="btn-primary text-sm py-1.5 px-3 flex items-center gap-1.5"
-          >
-            {briefingLoading ? (
-              <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Generating...</>
-            ) : (
-              <><Sparkles className="w-3.5 h-3.5" /> Generate Briefing</>
-            )}
-          </button>
-        </div>
-        {briefing ? (
-          <div className="text-sm text-text-primary leading-relaxed space-y-3">
+          <div className="text-sm text-text-primary leading-relaxed space-y-2">
             {briefing.split('\n').map((line, i) => {
               const trimmed = line.trim()
               if (!trimmed) return null
-              // Render section headers (PRIORITY ACTIONS, AGENT STATUS, etc.)
               if (/^[A-Z][A-Z\s]{3,}$/.test(trimmed)) {
-                return <h4 key={i} className="font-heading text-accent-teal text-sm pt-2 first:pt-0">{trimmed}</h4>
+                return <h4 key={i} className="font-heading text-accent-teal text-xs pt-3 first:pt-0 uppercase tracking-wide">{trimmed}</h4>
               }
-              return <p key={i} className="text-text-primary">{trimmed}</p>
+              return <p key={i}>{trimmed}</p>
             })}
           </div>
-        ) : (
-          <p className="text-sm text-text-secondary">Click &ldquo;Generate Briefing&rdquo; for your Chief of Staff to analyze your agents, review pending content, and tell you exactly what needs your attention.</p>
-        )}
-      </div>
-
-      {/* Cross-Agent Insights */}
-      {data.insights && data.insights.length > 0 && (
-        <div className="card p-5 border-l-4 border-l-status-warning">
-          <div className="flex items-center gap-2 mb-3">
-            <Activity className="w-5 h-5 text-status-warning" />
-            <h3 className="font-heading text-lg text-text-primary">Cross-Agent Intelligence</h3>
-          </div>
-          <ul className="space-y-2">
-            {data.insights.map((insight, i) => (
-              <li key={i} className="text-sm text-text-primary flex items-start gap-2">
-                <span className="text-status-warning mt-0.5">&#8226;</span>
-                {insight}
-              </li>
-            ))}
-          </ul>
         </div>
       )}
 
-      {/* Email & Calendar */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Email */}
-        <div className="card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Mail className="w-5 h-5 text-accent-teal" />
-              <h3 className="font-heading text-lg text-text-primary">Email</h3>
-            </div>
-            <div className="flex items-center gap-2">
-              {gmailAgent?.lastScannedAt && (
-                <span className="text-xs text-text-secondary">{formatRelativeTime(gmailAgent.lastScannedAt)}</span>
-              )}
-              {gmailAgent && (
-                <button
-                  onClick={() => handleScan(gmailAgent.id)}
-                  disabled={scanningId !== null}
-                  className="btn-primary text-sm py-1.5 px-3 flex items-center gap-1.5"
-                >
-                  <RefreshCw className={cn('w-3.5 h-3.5', scanningId === gmailAgent.id && 'animate-spin')} />
-                  {scanningId === gmailAgent.id ? 'Scanning...' : 'Scan'}
-                </button>
-              )}
-            </div>
-          </div>
-          {!gmailAgent ? (
-            <p className="text-sm text-text-secondary py-4 text-center">Connect Google in <Link href="/settings" className="text-accent-teal hover:underline">Settings</Link> to see emails.</p>
-          ) : data.emailItems.length === 0 ? (
-            <p className="text-sm text-text-secondary py-4 text-center">No emails need attention.</p>
-          ) : (
-            <div className="space-y-2">
-              {data.emailItems.map((item: ContentItem) => {
-                const processing = processingIds.has(item.id)
-                const isFollowUp = item.action.startsWith('Follow up')
-                return (
-                  <div key={item.id} className={cn(
-                    'p-3 rounded-lg border transition-colors',
-                    item.urgency === 'high' ? 'border-l-4 border-l-status-danger border-surface-border' : 'border-surface-border'
-                  )}>
-                    <div className="flex items-start gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <Badge variant={isFollowUp ? 'warning' : getUrgencyBadgeVariant(item.urgency)} size="sm">
-                            {isFollowUp ? 'follow-up' : item.urgency}
-                          </Badge>
-                          {item.suggestedAction && (
-                            <span className={cn('text-xs px-1.5 py-0.5 rounded', SUGGESTED_ACTION_COLORS[item.suggestedAction] || '')}>
-                              {item.suggestedAction}
-                            </span>
-                          )}
-                          <span className="text-xs text-text-secondary ml-auto">{formatRelativeTime(item.createdAt)}</span>
-                        </div>
-                        <p className="text-sm font-medium text-text-primary">{item.action}</p>
-                        <p className="text-xs text-text-secondary mt-1 line-clamp-2">{item.detail}</p>
-                      </div>
-                      <div className="flex gap-1.5 shrink-0">
-                        <button
-                          onClick={() => handleAction(item.id, 'approve')}
-                          disabled={processing}
-                          className="p-1.5 rounded-button bg-status-success/10 text-status-success hover:bg-status-success/20 transition-colors"
-                          title="Approve & Copy"
-                        >
-                          <Check className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleAction(item.id, 'deny')}
-                          disabled={processing}
-                          className="p-1.5 rounded-button bg-status-danger/10 text-status-danger hover:bg-status-danger/20 transition-colors"
-                          title="Dismiss"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
+      {/* Urgent items banner */}
+      {highUrgencyCount > 0 && (
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-status-danger/5 border border-status-danger/20">
+          <AlertCircle className="w-5 h-5 text-status-danger shrink-0" />
+          <p className="text-sm text-text-primary">
+            <span className="font-medium">{highUrgencyCount} urgent</span> — review these first
+          </p>
         </div>
+      )}
 
-        {/* Calendar */}
-        <div className="card p-5">
-          <div className="flex items-center justify-between mb-4">
+      {/* Google not connected */}
+      {!googleConnected && (
+        <div className="card p-8 text-center">
+          <Mail className="w-10 h-10 text-text-secondary mx-auto mb-3" />
+          <h3 className="font-heading text-lg text-text-primary mb-2">Connect your Google account</h3>
+          <p className="text-sm text-text-secondary mb-4">Link Gmail and Google Calendar to see your emails and schedule here.</p>
+          <Link href="/settings" className="btn-primary text-sm py-2 px-6 inline-block">
+            Go to Settings
+          </Link>
+        </div>
+      )}
+
+      {/* Today's Schedule */}
+      {calendarAgent && (
+        <div className="card overflow-hidden">
+          <div className="flex items-center justify-between p-4 pb-3">
             <div className="flex items-center gap-2">
               <Calendar className="w-5 h-5 text-accent-teal" />
-              <h3 className="font-heading text-lg text-text-primary">Today&apos;s Schedule</h3>
-            </div>
-            <div className="flex items-center gap-2">
-              {calendarAgent?.lastScannedAt && (
-                <span className="text-xs text-text-secondary">{formatRelativeTime(calendarAgent.lastScannedAt)}</span>
-              )}
-              {calendarAgent && (
-                <button
-                  onClick={() => handleScan(calendarAgent.id)}
-                  disabled={scanningId !== null}
-                  className="btn-primary text-sm py-1.5 px-3 flex items-center gap-1.5"
-                >
-                  <RefreshCw className={cn('w-3.5 h-3.5', scanningId === calendarAgent.id && 'animate-spin')} />
-                  {scanningId === calendarAgent.id ? 'Scanning...' : 'Scan'}
-                </button>
+              <h2 className="font-heading text-base text-text-primary">Today&apos;s Schedule</h2>
+              {data.calendarItems.length > 0 && (
+                <span className="text-xs text-text-secondary bg-surface-bg px-2 py-0.5 rounded-full">{data.calendarItems.length}</span>
               )}
             </div>
+            <button
+              onClick={() => handleScan(calendarAgent.id)}
+              disabled={scanningId !== null}
+              className="text-text-secondary hover:text-text-primary transition-colors p-1.5"
+              title="Refresh calendar"
+            >
+              <RefreshCw className={cn('w-4 h-4', scanningId === calendarAgent.id && 'animate-spin')} />
+            </button>
           </div>
-          {!calendarAgent ? (
-            <p className="text-sm text-text-secondary py-4 text-center">Connect Google in <Link href="/settings" className="text-accent-teal hover:underline">Settings</Link> to see your calendar.</p>
-          ) : data.calendarItems.length === 0 ? (
-            <p className="text-sm text-text-secondary py-4 text-center">No events today.</p>
+          {data.calendarItems.length === 0 ? (
+            <p className="text-sm text-text-secondary px-4 pb-4">No events today.</p>
           ) : (
-            <div className="space-y-2">
+            <div className="divide-y divide-surface-border">
               {data.calendarItems.map((item: ContentItem) => {
                 const processing = processingIds.has(item.id)
-                // Parse time and location from detail
                 const timeMatch = item.detail.match(/Time: (.+)/)
                 const locationMatch = item.detail.match(/Location: (.+)/)
                 const attendeesMatch = item.detail.match(/Attendees: (.+)/)
+                const eventName = item.detail.split('\n')[0]
                 return (
                   <div key={item.id} className={cn(
-                    'p-3 rounded-lg border transition-colors',
-                    item.urgency === 'high' ? 'border-l-4 border-l-status-danger border-surface-border' : 'border-surface-border'
+                    'px-4 py-3 flex items-start gap-4 hover:bg-surface-bg/50 transition-colors',
+                    item.urgency === 'high' && 'border-l-3 border-l-status-danger'
                   )}>
-                    <div className="flex items-start gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Badge variant={getUrgencyBadgeVariant(item.urgency)} size="sm">{item.urgency}</Badge>
-                          <span className="text-xs text-text-secondary ml-auto">{formatRelativeTime(item.createdAt)}</span>
-                        </div>
-                        <p className="text-sm font-medium text-text-primary">{item.detail.split('\n')[0]}</p>
-                        {timeMatch && (
-                          <div className="flex items-center gap-1.5 mt-1">
+                    {/* Time column */}
+                    <div className="w-20 shrink-0 pt-0.5">
+                      {timeMatch ? (
+                        <p className="text-sm font-medium text-text-primary">{timeMatch[1].split(' - ')[0]}</p>
+                      ) : (
+                        <p className="text-xs text-text-secondary">All day</p>
+                      )}
+                    </div>
+                    {/* Event details */}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-text-primary">{eventName}</p>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+                        {timeMatch && timeMatch[1].includes(' - ') && (
+                          <div className="flex items-center gap-1">
                             <Clock className="w-3 h-3 text-text-secondary" />
                             <span className="text-xs text-text-secondary">{timeMatch[1]}</span>
                           </div>
                         )}
                         {locationMatch && (
-                          <div className="flex items-center gap-1.5 mt-0.5">
+                          <div className="flex items-center gap-1">
                             <MapPin className="w-3 h-3 text-text-secondary" />
                             <span className="text-xs text-text-secondary">{locationMatch[1]}</span>
                           </div>
                         )}
                         {attendeesMatch && (
-                          <div className="flex items-center gap-1.5 mt-0.5">
+                          <div className="flex items-center gap-1">
                             <Users className="w-3 h-3 text-text-secondary" />
                             <span className="text-xs text-text-secondary line-clamp-1">{attendeesMatch[1]}</span>
                           </div>
                         )}
                       </div>
-                      <div className="flex gap-1.5 shrink-0">
-                        <button
-                          onClick={() => handleAction(item.id, 'approve')}
-                          disabled={processing}
-                          className="p-1.5 rounded-button bg-status-success/10 text-status-success hover:bg-status-success/20 transition-colors"
-                          title="Approve & Copy"
-                        >
-                          <Check className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleAction(item.id, 'deny')}
-                          disabled={processing}
-                          className="p-1.5 rounded-button bg-status-danger/10 text-status-danger hover:bg-status-danger/20 transition-colors"
-                          title="Dismiss"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
+                    </div>
+                    {/* Actions */}
+                    <div className="flex gap-1 shrink-0">
+                      <button
+                        onClick={() => handleAction(item.id, 'approve')}
+                        disabled={processing}
+                        className="p-1.5 rounded-button text-text-secondary hover:bg-status-success/10 hover:text-status-success transition-colors"
+                        title="Approve"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleAction(item.id, 'deny')}
+                        disabled={processing}
+                        className="p-1.5 rounded-button text-text-secondary hover:bg-status-danger/10 hover:text-status-danger transition-colors"
+                        title="Dismiss"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 )
@@ -414,171 +310,84 @@ export default function BriefingPage() {
             </div>
           )}
         </div>
-      </div>
+      )}
 
-      {/* Two-column layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: Other content + Activity */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Other Content Ready */}
-          {data.content.length > 0 && (
-            <div className="card p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-heading text-lg text-text-primary">Other Items for Review</h3>
-                <Link href="/queue" className="text-sm text-accent-teal hover:underline flex items-center gap-1">
-                  View all <ChevronRight className="w-3.5 h-3.5" />
-                </Link>
-              </div>
-              <div className="space-y-3">
-                {data.content.slice(0, 4).map((item: ContentItem) => {
-                  const Icon = getAgentIcon(item.agent?.icon || '')
-                  const processing = processingIds.has(item.id)
-                  return (
-                    <div key={item.id} className={cn(
-                      'p-3 rounded-lg border transition-colors',
-                      item.urgency === 'high' ? 'border-l-4 border-l-status-danger border-surface-border' : 'border-surface-border'
-                    )}>
-                      <div className="flex items-start gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-surface-bg flex items-center justify-center shrink-0 mt-0.5">
-                          <Icon className="w-4 h-4 text-accent-teal" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 mb-1 flex-wrap">
-                            <span className="text-xs text-text-secondary">{item.agent?.name}</span>
-                            <Badge variant={getUrgencyBadgeVariant(item.urgency)} size="sm">{item.urgency}</Badge>
-                            {item.suggestedAction && (
-                              <span className={cn('text-xs px-1.5 py-0.5 rounded', SUGGESTED_ACTION_COLORS[item.suggestedAction] || '')}>
-                                {item.suggestedAction}
-                              </span>
-                            )}
-                            {item.relevanceScore != null && (
-                              <span className="text-xs text-text-secondary">{item.relevanceScore}/10</span>
-                            )}
-                            <span className="text-xs text-text-secondary ml-auto">{formatRelativeTime(item.createdAt)}</span>
-                          </div>
-                          <p className="text-sm font-medium text-text-primary">{item.action}</p>
-                          {item.goalAlignment && item.goalAlignment !== 'none' && (
-                            <p className="text-xs text-accent-teal mt-0.5">{item.goalAlignment}</p>
-                          )}
-                          <p className="text-xs text-text-secondary mt-1 line-clamp-2">{item.detail}</p>
-                        </div>
-                        <div className="flex gap-1.5 shrink-0">
-                          <button
-                            onClick={() => handleAction(item.id, 'approve')}
-                            disabled={processing}
-                            className="p-1.5 rounded-button bg-status-success/10 text-status-success hover:bg-status-success/20 transition-colors"
-                            title="Approve & Copy"
-                          >
-                            <Check className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleAction(item.id, 'deny')}
-                            disabled={processing}
-                            className="p-1.5 rounded-button bg-status-danger/10 text-status-danger hover:bg-status-danger/20 transition-colors"
-                            title="Dismiss"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
+      {/* Email */}
+      {gmailAgent && (
+        <div className="card overflow-hidden">
+          <div className="flex items-center justify-between p-4 pb-3">
+            <div className="flex items-center gap-2">
+              <Mail className="w-5 h-5 text-accent-teal" />
+              <h2 className="font-heading text-base text-text-primary">Email</h2>
+              {data.emailItems.length > 0 && (
+                <span className="text-xs text-text-secondary bg-surface-bg px-2 py-0.5 rounded-full">{data.emailItems.length}</span>
+              )}
             </div>
-          )}
-
-          {/* Recent Activity */}
-          <div className="card p-5">
-            <h3 className="font-heading text-lg text-text-primary mb-4">Recent Activity</h3>
-            {data.recentActivity.length === 0 ? (
-              <p className="text-sm text-text-secondary py-4 text-center">No activity yet.</p>
-            ) : (
-              <div className="space-y-3">
-                {data.recentActivity.map((entry: ActivityLogEntry) => (
-                  <div key={entry.id} className="flex items-start gap-3">
-                    <div className={cn('w-2 h-2 rounded-full mt-2 shrink-0', getStatusDotColor(
-                      entry.type === 'alert' ? 'error' : entry.type === 'approved' ? 'active' : 'paused'
-                    ))} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-text-primary">{entry.agent?.name}</span>
-                        <Badge variant={getTypeBadgeVariant(entry.type)} size="sm">{entry.type}</Badge>
-                      </div>
-                      <p className="text-sm text-text-secondary">{entry.action}</p>
-                    </div>
-                    <span className="text-xs text-text-secondary whitespace-nowrap">{formatRelativeTime(entry.createdAt)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            <button
+              onClick={() => handleScan(gmailAgent.id)}
+              disabled={scanningId !== null}
+              className="text-text-secondary hover:text-text-primary transition-colors p-1.5"
+              title="Refresh email"
+            >
+              <RefreshCw className={cn('w-4 h-4', scanningId === gmailAgent.id && 'animate-spin')} />
+            </button>
           </div>
-        </div>
-
-        {/* Right: Connected agents + Agent list */}
-        <div className="space-y-6">
-          {connectedAgents.filter((a: Agent) => a.category !== 'Gmail' && a.category !== 'Calendar').map((agent: Agent) => {
-            const Icon = getAgentIcon(agent.icon)
-            const isScanning = scanningId === agent.id
-            return (
-              <div key={agent.id} className="card p-5">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-lg bg-accent-teal-light flex items-center justify-center">
-                    <Icon className="w-5 h-5 text-accent-teal" />
-                  </div>
-                  <div>
-                    <h3 className="font-heading text-base text-text-primary">{agent.name}</h3>
-                    <div className="flex items-center gap-1.5">
-                      <span className={cn('status-dot', getStatusDotColor(agent.status))} />
-                      <span className="text-xs text-text-secondary capitalize">{agent.status}</span>
-                    </div>
-                  </div>
-                </div>
-                <p className="text-sm text-text-secondary mb-3">{agent.description}</p>
-                <div className="flex items-center gap-1.5 text-xs text-text-secondary mb-3">
-                  <ExternalLink className="w-3 h-3" />
-                  <span className="truncate">{agent.externalUrl}</span>
-                </div>
-                {agent.lastScannedAt && (
-                  <p className="text-xs text-text-secondary mb-4">Last scanned {formatRelativeTime(agent.lastScannedAt)}</p>
-                )}
-                <button
-                  onClick={() => handleScan(agent.id)}
-                  disabled={scanningId !== null}
-                  className="btn-primary w-full text-sm flex items-center justify-center gap-2"
-                >
-                  <RefreshCw className={cn('w-4 h-4', isScanning && 'animate-spin')} />
-                  {isScanning ? 'Scanning...' : `Scan ${agent.name}`}
-                </button>
-              </div>
-            )
-          })}
-
-          <div className="card p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-heading text-base text-text-primary">Your Agents</h3>
-              <Link href="/agents" className="text-sm text-accent-teal hover:underline">Manage</Link>
-            </div>
-            <div className="space-y-3">
-              {data.agents.map((agent: Agent) => {
-                const Icon = getAgentIcon(agent.icon)
+          {data.emailItems.length === 0 ? (
+            <p className="text-sm text-text-secondary px-4 pb-4">No emails need attention.</p>
+          ) : (
+            <div className="divide-y divide-surface-border">
+              {data.emailItems.map((item: ContentItem) => {
+                const processing = processingIds.has(item.id)
+                const isFollowUp = item.action.startsWith('Follow up')
+                // Parse sender from detail
+                const fromMatch = item.detail.match(/From: (.+)/)
+                const subjectMatch = item.detail.match(/Subject: (.+)/)
+                const sender = fromMatch ? fromMatch[1].replace(/<.*>/, '').trim() : ''
+                const subject = subjectMatch ? subjectMatch[1] : item.action
                 return (
-                  <div key={agent.id} className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-surface-bg flex items-center justify-center">
-                      <Icon className="w-4 h-4 text-accent-teal" />
-                    </div>
+                  <div key={item.id} className={cn(
+                    'px-4 py-3 flex items-start gap-3 hover:bg-surface-bg/50 transition-colors',
+                    item.urgency === 'high' && 'border-l-3 border-l-status-danger'
+                  )}>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-text-primary">{agent.name}</p>
-                      <p className="text-xs text-text-secondary">{agent.category}</p>
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-sm font-medium text-text-primary truncate">{sender || 'Unknown'}</span>
+                        {isFollowUp && (
+                          <Badge variant="warning" size="sm">follow-up</Badge>
+                        )}
+                        {item.urgency === 'high' && !isFollowUp && (
+                          <Badge variant="danger" size="sm">urgent</Badge>
+                        )}
+                        <span className="text-xs text-text-secondary ml-auto shrink-0">{formatRelativeTime(item.createdAt)}</span>
+                      </div>
+                      <p className="text-sm text-text-primary truncate">{subject}</p>
+                      <p className="text-xs text-text-secondary mt-0.5 line-clamp-1">{item.detail.split('\n\n')[1] || ''}</p>
                     </div>
-                    <span className={cn('status-dot', getStatusDotColor(agent.status))} />
+                    <div className="flex gap-1 shrink-0">
+                      <button
+                        onClick={() => handleAction(item.id, 'approve')}
+                        disabled={processing}
+                        className="p-1.5 rounded-button text-text-secondary hover:bg-status-success/10 hover:text-status-success transition-colors"
+                        title="Approve"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleAction(item.id, 'deny')}
+                        disabled={processing}
+                        className="p-1.5 rounded-button text-text-secondary hover:bg-status-danger/10 hover:text-status-danger transition-colors"
+                        title="Dismiss"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 )
               })}
             </div>
-          </div>
+          )}
         </div>
-      </div>
+      )}
     </div>
   )
 }
