@@ -102,7 +102,7 @@ export async function syncCalendarAgent(agentId: string, userId: string) {
   const isEvening = nowInTz.getHours() >= 17
 
   for (const event of events) {
-    const externalId = `cal-${event.id}-${now.toISOString().slice(0, 10)}`
+    const externalId = `cal-${event.id}-${nowInTz.toISOString().slice(0, 10)}`
     const existing = await prisma.approvalItem.findFirst({
       where: { agentId, externalId },
     })
@@ -131,7 +131,7 @@ export async function syncCalendarAgent(agentId: string, userId: string) {
     let urgency = 'low'
     if (!event.isAllDay) {
       const eventStart = new Date(event.start)
-      const hoursUntil = (eventStart.getTime() - now.getTime()) / (60 * 60 * 1000)
+      const hoursUntil = (eventStart.getTime() - nowInTz.getTime()) / (60 * 60 * 1000)
       if (hoursUntil <= 1 && hoursUntil > 0) urgency = 'high'
       else if (hoursUntil <= 3 && hoursUntil > 0) urgency = 'medium'
     }
@@ -160,7 +160,7 @@ export async function syncCalendarAgent(agentId: string, userId: string) {
 
   // End-of-day summary if evening
   if (isEvening && events.length > 0) {
-    const summaryId = `cal-summary-${now.toISOString().slice(0, 10)}`
+    const summaryId = `cal-summary-${nowInTz.toISOString().slice(0, 10)}`
     const existing = await prisma.approvalItem.findFirst({
       where: { agentId, externalId: summaryId },
     })
