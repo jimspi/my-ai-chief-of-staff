@@ -207,20 +207,27 @@ export interface CalendarEvent {
   attendees: string[]
 }
 
-export async function fetchTodayEvents(userId: string): Promise<CalendarEvent[]> {
+export async function fetchTodayEvents(userId: string, timezone = 'America/Denver'): Promise<CalendarEvent[]> {
   const auth = await getAuthedClient(userId)
   if (!auth) return []
 
   const calendar = google.calendar({ version: 'v3', auth })
 
-  const now = new Date()
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+  // Get today's date in the user's timezone
+  const nowInTz = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))
+  const startOfDay = new Date(nowInTz.getFullYear(), nowInTz.getMonth(), nowInTz.getDate())
+  const endOfDay = new Date(nowInTz.getFullYear(), nowInTz.getMonth(), nowInTz.getDate() + 1)
+
+  // Convert back to UTC for the API
+  const tzOffset = nowInTz.getTime() - new Date().getTime()
+  const startUTC = new Date(startOfDay.getTime() - tzOffset)
+  const endUTC = new Date(endOfDay.getTime() - tzOffset)
 
   const res = await calendar.events.list({
     calendarId: 'primary',
-    timeMin: startOfDay.toISOString(),
-    timeMax: endOfDay.toISOString(),
+    timeMin: startUTC.toISOString(),
+    timeMax: endUTC.toISOString(),
+    timeZone: timezone,
     singleEvents: true,
     orderBy: 'startTime',
   })

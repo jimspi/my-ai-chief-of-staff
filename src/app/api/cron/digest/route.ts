@@ -33,9 +33,10 @@ export async function GET(request: Request) {
 
     try {
       // Gather data
+      const timezone = account.user.timezone || 'America/Denver'
       const [emails, events, goalsSummary, pendingCount] = await Promise.all([
         fetchUnreadEmails(userId, 10),
-        fetchTodayEvents(userId),
+        fetchTodayEvents(userId, timezone),
         getGoalsSummary(userId),
         prisma.approvalItem.count({ where: { status: 'pending', agent: { userId } } }),
       ])

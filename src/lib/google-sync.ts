@@ -1,6 +1,11 @@
 import { prisma } from '@/lib/prisma'
 import { fetchUnreadEmails, fetchFollowUpEmails, fetchTodayEvents } from '@/lib/google'
 
+async function getUserTimezone(userId: string): Promise<string> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } })
+  return user?.timezone || 'America/Denver'
+}
+
 export async function syncGmailAgent(agentId: string, userId: string) {
   const [unread, followUps] = await Promise.all([
     fetchUnreadEmails(userId),
@@ -87,13 +92,14 @@ export async function syncGmailAgent(agentId: string, userId: string) {
 }
 
 export async function syncCalendarAgent(agentId: string, userId: string) {
-  const events = await fetchTodayEvents(userId)
+  const timezone = await getUserTimezone(userId)
+  const events = await fetchTodayEvents(userId, timezone)
 
   let created = 0
   let skipped = 0
 
-  const now = new Date()
-  const isEvening = now.getHours() >= 17
+  const nowInTz = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))
+  const isEvening = nowInTz.getHours() >= 17
 
   for (const event of events) {
     const externalId = `cal-${event.id}-${now.toISOString().slice(0, 10)}`
