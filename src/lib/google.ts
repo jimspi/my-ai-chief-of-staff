@@ -5,6 +5,7 @@ const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/tasks.readonly',
   'https://www.googleapis.com/auth/userinfo.email',
 ]
 
@@ -513,4 +514,133 @@ export async function fetchEmailsFromSenders(userId: string, senderEmails: strin
   }
 
   return emails
+}
+
+// --- Google Tasks ---
+
+export interface GoogleTask {
+  id: string
+  title: string
+  notes: string
+  due: string
+  status: 'needsAction' | 'completed'
+  updated: string
+  listName: string
+}
+
+export async function fetchGoogleTasks(userId: string): Promise<GoogleTask[]> {
+  const auth = await getAuthedClient(userId)
+  if (!auth) return []
+
+  const tasks = google.tasks({ version: 'v1', auth })
+
+  const listsRes = await tasks.tasklists.list({ maxResults: 10 })
+  const taskLists = listsRes.data.items || []
+
+  const allTasks: GoogleTask[] = []
+
+  for (const list of taskLists) {
+    if (!list.id) continue
+    try {
+      const res = await tasks.tasks.list({
+        tasklist: list.id,
+        showCompleted: false,
+        showHidden: false,
+        maxResults: 20,
+      })
+
+      for (const task of res.data.items || []) {
+        if (!task.title?.trim()) continue
+        allTasks.push({
+          id: task.id || '',
+          title: task.title || '',
+          notes: task.notes || '',
+          due: task.due || '',
+          status: (task.status as 'needsAction' | 'completed') || 'needsAction',
+          updated: task.updated || '',
+          listName: list.title || 'Tasks',
+        })
+      }
+    } catch {
+      // skip list errors
+    }
+  }
+
+  allTasks.sort((a, b) => {
+    if (a.due && b.due) return new Date(a.due).getTime() - new Date(b.due).getTime()
+    if (a.due) return -1
+    if (b.due) return 1
+    return 0
+  })
+
+  return allTasks
+}
+
+// --- Send Reply to Thread ---
+
+export async function sendReplyToThread(
+  userId: string,
+  threadId: string,
+  messageId: string,
+  to: string,
+  subject: string,
+  body: string
+): Promise<boolean> {
+  const auth = await getAuthedClient(userId)
+  if (!auth) return false
+
+  const gmail = google.gmail({ version: 'v1', auth })
+
+  const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`
+
+  const rawMessage = [
+    `To: ${to}`,
+    `Subject: ${replySubject}`,
+    `In-Reply-To: ${messageId}`,
+    `References: ${messageId}`,
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    body,
+  ].join('\r\n')
+
+  const encoded = Buffer.from(rawMessage).toString('base64url')
+
+  await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw: encoded, threadId },
+  })
+
+  return true
+}
+
+// --- Get Message Headers for Reply ---
+
+export async function getMessageHeaders(userId: string, gmailMessageId: string): Promise<{
+  messageId: string
+  from: string
+  to: string
+  subject: string
+  threadId: string
+} | null> {
+  const auth = await getAuthedClient(userId)
+  if (!auth) return null
+
+  const gmail = google.gmail({ version: 'v1', auth })
+  const detail = await gmail.users.messages.get({
+    userId: 'me',
+    id: gmailMessageId,
+    format: 'metadata',
+    metadataHeaders: ['From', 'To', 'Subject', 'Message-ID'],
+  })
+
+  const headers = detail.data.payload?.headers || []
+  const getHeader = (name: string) => headers.find(h => h.name === name)?.value || ''
+
+  return {
+    messageId: getHeader('Message-ID'),
+    from: getHeader('From'),
+    to: getHeader('To'),
+    subject: getHeader('Subject'),
+    threadId: detail.data.threadId || '',
+  }
 }

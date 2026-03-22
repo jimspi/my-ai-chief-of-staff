@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSessionUserId, AuthError } from '@/lib/auth-helpers'
-import { fetchUnreadEmails, fetchTodayEvents, fetchTomorrowEvents } from '@/lib/google'
+import { fetchUnreadEmails, fetchTodayEvents, fetchTomorrowEvents, fetchGoogleTasks } from '@/lib/google'
 
 export async function GET() {
   try {
@@ -79,19 +79,23 @@ export async function GET() {
     let liveCalendarCount = 0
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let tomorrowItems: any[] = []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let googleTasks: any[] = []
 
     if (googleAccount) {
       const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } })
       const timezone = user?.timezone || 'America/Denver'
 
       // Always fetch live counts for the status bar
-      const [liveEmails, liveEvents, tomorrowEvents] = await Promise.all([
+      const [liveEmails, liveEvents, tomorrowEvents, fetchedTasks] = await Promise.all([
         fetchUnreadEmails(userId, 10).catch(() => []),
         fetchTodayEvents(userId, timezone).catch(() => []),
         fetchTomorrowEvents(userId, timezone).catch(() => []),
+        fetchGoogleTasks(userId).catch(() => []),
       ])
       liveEmailCount = liveEmails.length
       liveCalendarCount = liveEvents.length
+      googleTasks = fetchedTasks
 
       // If the pipeline has no calendar items, build them from live data
       if (calendarItems.length === 0 && liveEvents.length > 0) {
@@ -206,6 +210,7 @@ export async function GET() {
       emailItems,
       calendarItems,
       tomorrowItems,
+      googleTasks,
       agents,
       recentActivity,
       insights,

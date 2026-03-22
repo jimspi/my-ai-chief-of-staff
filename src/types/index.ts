@@ -78,7 +78,18 @@ export interface BriefingData {
   emailItems: ContentItem[]
   calendarItems: ContentItem[]
   tomorrowItems: ContentItem[]
+  googleTasks: GoogleTask[]
   agents: Agent[]
   recentActivity: ActivityLogEntry[]
   insights: string[]
+}
+
+export interface GoogleTask {
+  id: string
+  title: string
+  notes: string
+  due: string
+  status: 'needsAction' | 'completed'
+  updated: string
+  listName: string
 }

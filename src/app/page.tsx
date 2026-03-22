@@ -16,12 +16,15 @@ import {
   AlertCircle,
   Reply,
   FileText,
+  Send,
+  CheckSquare,
+  ListTodo,
 } from 'lucide-react'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import { useToast } from '@/contexts/ToastContext'
 import Badge from '@/components/ui/Badge'
 import { CardSkeleton } from '@/components/ui/SkeletonLoader'
-import type { BriefingData, ContentItem, Agent } from '@/types'
+import type { BriefingData, ContentItem, Agent, GoogleTask } from '@/types'
 
 export default function BriefingPage() {
   const { data: session } = useSession()
@@ -35,6 +38,8 @@ export default function BriefingPage() {
   const [draftingIds, setDraftingIds] = useState<Set<string>>(new Set())
   const [preppingIds, setPreppingIds] = useState<Set<string>>(new Set())
   const [prepData, setPrepData] = useState<Record<string, string>>({})
+  const [draftData, setDraftData] = useState<Record<string, string>>({})
+  const [sendingIds, setSendingIds] = useState<Set<string>>(new Set())
 
   const fetchData = useCallback(async () => {
     try {
@@ -160,6 +165,11 @@ export default function BriefingPage() {
   }
 
   async function handleDraftReply(emailItemId: string) {
+    // Toggle off if draft already showing
+    if (draftData[emailItemId]) {
+      setDraftData(prev => { const n = { ...prev }; delete n[emailItemId]; return n })
+      return
+    }
     setDraftingIds(prev => new Set(prev).add(emailItemId))
     try {
       const res = await fetch('/api/ai/reply-draft', {
@@ -168,7 +178,8 @@ export default function BriefingPage() {
         body: JSON.stringify({ emailItemId }),
       })
       if (res.ok) {
-        addToast('Reply draft sent to your inbox', 'success')
+        const result = await res.json()
+        setDraftData(prev => ({ ...prev, [emailItemId]: result.draft }))
       } else {
         const err = await res.json()
         addToast(err.error || 'Failed to generate draft', 'error')
@@ -177,6 +188,31 @@ export default function BriefingPage() {
       addToast('Failed to generate draft', 'error')
     } finally {
       setDraftingIds(prev => { const s = new Set(prev); s.delete(emailItemId); return s })
+    }
+  }
+
+  async function handleSendReply(emailItemId: string) {
+    const replyBody = draftData[emailItemId]
+    if (!replyBody?.trim()) return
+    setSendingIds(prev => new Set(prev).add(emailItemId))
+    try {
+      const res = await fetch('/api/ai/send-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailItemId, replyBody }),
+      })
+      if (res.ok) {
+        addToast('Reply sent!', 'success')
+        setDraftData(prev => { const n = { ...prev }; delete n[emailItemId]; return n })
+        fetchData()
+      } else {
+        const err = await res.json()
+        addToast(err.error || 'Failed to send reply', 'error')
+      }
+    } catch {
+      addToast('Failed to send reply', 'error')
+    } finally {
+      setSendingIds(prev => { const s = new Set(prev); s.delete(emailItemId); return s })
     }
   }
 
@@ -559,69 +595,168 @@ export default function BriefingPage() {
               {data.emailItems.map((item: ContentItem) => {
                 const processing = processingIds.has(item.id)
                 const drafting = draftingIds.has(item.id)
+                const sending = sendingIds.has(item.id)
                 const isFollowUp = item.action.startsWith('Follow up')
+                const isSuggestFollowUp = item.action.startsWith('Suggest follow up')
                 const fromMatch = item.detail.match(/From: (.+)/)
                 const subjectMatch = item.detail.match(/Subject: (.+)/)
                 const sender = fromMatch ? fromMatch[1].replace(/<.*>/, '').trim() : ''
                 const subject = subjectMatch ? subjectMatch[1] : item.action
+                const hasDraft = !!draftData[item.id]
                 return (
-                  <div key={item.id} className={cn(
-                    'px-4 py-3 flex items-start gap-3 hover:bg-surface-bg/50 transition-colors',
-                    item.urgency === 'high' && 'border-l-3 border-l-status-danger'
-                  )}>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-sm font-medium text-text-primary truncate">{sender || 'Unknown'}</span>
-                        {isFollowUp && (
-                          <Badge variant="warning" size="sm">follow-up</Badge>
+                  <div key={item.id}>
+                    <div className={cn(
+                      'px-4 py-3 flex items-start gap-3 hover:bg-surface-bg/50 transition-colors',
+                      item.urgency === 'high' && 'border-l-3 border-l-status-danger'
+                    )}>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="text-sm font-medium text-text-primary truncate">{sender || 'Unknown'}</span>
+                          {isFollowUp && (
+                            <Badge variant="warning" size="sm">follow-up</Badge>
+                          )}
+                          {isSuggestFollowUp && (
+                            <Badge variant="warning" size="sm">needs reply</Badge>
+                          )}
+                          {item.urgency === 'high' && !isFollowUp && !isSuggestFollowUp && (
+                            <Badge variant="danger" size="sm">urgent</Badge>
+                          )}
+                          {item.suggestedAction && item.suggestedAction !== 'review' && (
+                            <Badge variant={item.suggestedAction === 'approve' ? 'success' : item.suggestedAction === 'escalate' ? 'danger' : 'default'} size="sm">
+                              {item.suggestedAction}
+                            </Badge>
+                          )}
+                          <span className="text-xs text-text-secondary ml-auto shrink-0">{formatRelativeTime(item.createdAt)}</span>
+                        </div>
+                        <p className="text-sm text-text-primary truncate">{subject}</p>
+                        <p className="text-xs text-text-secondary mt-0.5 line-clamp-2">{item.detail.split('\n\n')[1] || item.detail.split('\n').slice(1).join(' ').slice(0, 150) || ''}</p>
+                        {item.reasoning && item.reasoning !== 'Unread email in primary inbox' && (
+                          <p className="text-xs text-accent-teal mt-1 italic">{item.reasoning}</p>
                         )}
-                        {item.urgency === 'high' && !isFollowUp && (
-                          <Badge variant="danger" size="sm">urgent</Badge>
-                        )}
-                        {item.suggestedAction && item.suggestedAction !== 'review' && (
-                          <Badge variant={item.suggestedAction === 'approve' ? 'success' : item.suggestedAction === 'escalate' ? 'danger' : 'default'} size="sm">
-                            {item.suggestedAction}
-                          </Badge>
-                        )}
-                        <span className="text-xs text-text-secondary ml-auto shrink-0">{formatRelativeTime(item.createdAt)}</span>
                       </div>
-                      <p className="text-sm text-text-primary truncate">{subject}</p>
-                      <p className="text-xs text-text-secondary mt-0.5 line-clamp-2">{item.detail.split('\n\n')[1] || ''}</p>
-                      {item.reasoning && item.reasoning !== 'Unread email in primary inbox' && (
-                        <p className="text-xs text-accent-teal mt-1 italic">{item.reasoning}</p>
-                      )}
+                      <div className="flex gap-1 shrink-0">
+                        {!item.id.startsWith('live-') && (
+                          <button
+                            onClick={() => handleDraftReply(item.id)}
+                            disabled={drafting}
+                            className={cn(
+                              'p-1.5 rounded-button transition-colors',
+                              hasDraft
+                                ? 'bg-accent-teal/10 text-accent-teal'
+                                : 'text-text-secondary hover:bg-accent-teal/10 hover:text-accent-teal'
+                            )}
+                            title={hasDraft ? 'Hide draft' : 'Draft reply'}
+                          >
+                            {drafting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Reply className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleAction(item.id, 'approve')}
+                          disabled={processing}
+                          className="p-1.5 rounded-button text-text-secondary hover:bg-status-success/10 hover:text-status-success transition-colors"
+                          title="Approve"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleAction(item.id, 'deny')}
+                          disabled={processing}
+                          className="p-1.5 rounded-button text-text-secondary hover:bg-status-danger/10 hover:text-status-danger transition-colors"
+                          title="Dismiss"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex gap-1 shrink-0">
-                      <button
-                        onClick={() => handleDraftReply(item.id)}
-                        disabled={drafting}
-                        className="p-1.5 rounded-button text-text-secondary hover:bg-accent-teal/10 hover:text-accent-teal transition-colors"
-                        title="Draft reply (sent to your inbox)"
-                      >
-                        {drafting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Reply className="w-3.5 h-3.5" />}
-                      </button>
-                      <button
-                        onClick={() => handleAction(item.id, 'approve')}
-                        disabled={processing}
-                        className="p-1.5 rounded-button text-text-secondary hover:bg-status-success/10 hover:text-status-success transition-colors"
-                        title="Approve"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleAction(item.id, 'deny')}
-                        disabled={processing}
-                        className="p-1.5 rounded-button text-text-secondary hover:bg-status-danger/10 hover:text-status-danger transition-colors"
-                        title="Dismiss"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                    {/* Inline draft panel */}
+                    {hasDraft && (
+                      <div className="px-4 pb-3">
+                        <div className="p-3 rounded-lg bg-accent-teal/5 border border-accent-teal/20">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-1.5">
+                              <Reply className="w-3.5 h-3.5 text-accent-teal" />
+                              <span className="text-xs font-heading text-accent-teal uppercase tracking-wide">Draft Reply</span>
+                            </div>
+                            <span className="text-xs text-text-secondary">Edit below, then send</span>
+                          </div>
+                          <textarea
+                            value={draftData[item.id]}
+                            onChange={e => setDraftData(prev => ({ ...prev, [item.id]: e.target.value }))}
+                            rows={5}
+                            className="w-full text-sm text-text-primary bg-surface-card border border-surface-border rounded-lg p-3 resize-y focus:outline-none focus:ring-1 focus:ring-accent-teal"
+                          />
+                          <div className="flex items-center gap-2 mt-2">
+                            <button
+                              onClick={() => handleSendReply(item.id)}
+                              disabled={sending || !draftData[item.id]?.trim()}
+                              className="btn-primary text-sm py-1.5 px-4 flex items-center gap-1.5"
+                            >
+                              {sending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                              {sending ? 'Sending...' : 'Send Reply'}
+                            </button>
+                            <button
+                              onClick={() => setDraftData(prev => { const n = { ...prev }; delete n[item.id]; return n })}
+                              className="text-sm text-text-secondary hover:text-text-primary transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Google Tasks */}
+      {data.googleTasks && data.googleTasks.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="flex items-center justify-between p-4 pb-3">
+            <div className="flex items-center gap-2">
+              <ListTodo className="w-5 h-5 text-accent-teal" />
+              <h2 className="font-heading text-base text-text-primary">Tasks</h2>
+              <span className="text-xs text-text-secondary bg-surface-bg px-2 py-0.5 rounded-full">{data.googleTasks.length}</span>
+            </div>
+          </div>
+          <div className="divide-y divide-surface-border">
+            {data.googleTasks.map((task: GoogleTask) => {
+              const isOverdue = task.due && new Date(task.due) < new Date()
+              const dueDate = task.due
+                ? new Date(task.due).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                : null
+              return (
+                <div key={task.id} className={cn(
+                  'px-4 py-3 flex items-start gap-3 hover:bg-surface-bg/50 transition-colors',
+                  isOverdue && 'border-l-3 border-l-status-danger'
+                )}>
+                  <CheckSquare className={cn('w-4 h-4 mt-0.5 shrink-0', isOverdue ? 'text-status-danger' : 'text-text-secondary')} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-text-primary">{task.title}</p>
+                      {isOverdue && <Badge variant="danger" size="sm">overdue</Badge>}
+                    </div>
+                    {task.notes && (
+                      <p className="text-xs text-text-secondary mt-0.5 line-clamp-2">{task.notes}</p>
+                    )}
+                    <div className="flex items-center gap-3 mt-1">
+                      {dueDate && (
+                        <span className={cn('text-xs', isOverdue ? 'text-status-danger' : 'text-text-secondary')}>
+                          Due: {dueDate}
+                        </span>
+                      )}
+                      {task.listName !== 'Tasks' && (
+                        <span className="text-xs text-text-secondary">{task.listName}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
     </div>
