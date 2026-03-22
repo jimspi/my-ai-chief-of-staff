@@ -250,6 +250,46 @@ export async function fetchTodayEvents(userId: string, timezone = 'America/Denve
   }))
 }
 
+export async function fetchTomorrowEvents(userId: string, timezone = 'America/Denver'): Promise<CalendarEvent[]> {
+  const auth = await getAuthedClient(userId)
+  if (!auth) return []
+
+  const calendar = google.calendar({ version: 'v3', auth })
+
+  const now = new Date()
+  const tomorrowStr = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(
+    new Date(now.getTime() + 24 * 60 * 60 * 1000)
+  )
+
+  const utcDate = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }))
+  const tzDate = new Date(now.toLocaleString('en-US', { timeZone: timezone }))
+  const offsetMs = tzDate.getTime() - utcDate.getTime()
+
+  const startUTC = new Date(new Date(`${tomorrowStr}T00:00:00Z`).getTime() - offsetMs)
+  const endUTC = new Date(new Date(`${tomorrowStr}T23:59:59.999Z`).getTime() - offsetMs)
+
+  const res = await calendar.events.list({
+    calendarId: 'primary',
+    timeMin: startUTC.toISOString(),
+    timeMax: endUTC.toISOString(),
+    timeZone: timezone,
+    singleEvents: true,
+    orderBy: 'startTime',
+  })
+
+  return (res.data.items || []).map(event => ({
+    id: event.id || '',
+    summary: event.summary || '(no title)',
+    description: event.description || '',
+    start: event.start?.dateTime || event.start?.date || '',
+    end: event.end?.dateTime || event.end?.date || '',
+    location: event.location || '',
+    isAllDay: !event.start?.dateTime,
+    status: event.status || 'confirmed',
+    attendees: (event.attendees || []).map(a => a.email || '').filter(Boolean),
+  }))
+}
+
 export async function fetchUpcomingEvents(userId: string, hours = 4): Promise<CalendarEvent[]> {
   const auth = await getAuthedClient(userId)
   if (!auth) return []

@@ -475,6 +475,61 @@ export default function BriefingPage() {
         </div>
       )}
 
+      {/* Tomorrow's Schedule */}
+      {data.tomorrowItems && data.tomorrowItems.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="flex items-center justify-between p-4 pb-3">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-text-secondary" />
+              <h2 className="font-heading text-base text-text-primary">Tomorrow&apos;s Schedule</h2>
+              <span className="text-xs text-text-secondary bg-surface-bg px-2 py-0.5 rounded-full">{data.tomorrowItems.length}</span>
+            </div>
+          </div>
+          <div className="divide-y divide-surface-border">
+            {data.tomorrowItems.map((item: ContentItem) => {
+              const timeMatch = item.detail.match(/Time: (.+)/)
+              const locationMatch = item.detail.match(/Location: (.+)/)
+              const attendeesMatch = item.detail.match(/Attendees: (.+)/)
+              const eventName = item.detail.split('\n')[0]
+              return (
+                <div key={item.id} className="px-4 py-3 flex items-start gap-4 hover:bg-surface-bg/50 transition-colors">
+                  <div className="w-20 shrink-0 pt-0.5">
+                    {timeMatch ? (
+                      <p className="text-sm font-medium text-text-primary">{timeMatch[1].split(' - ')[0]}</p>
+                    ) : (
+                      <p className="text-xs text-text-secondary">All day</p>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-text-primary">{eventName}</p>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+                      {timeMatch && timeMatch[1].includes(' - ') && (
+                        <div className="flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-text-secondary" />
+                          <span className="text-xs text-text-secondary">{timeMatch[1]}</span>
+                        </div>
+                      )}
+                      {locationMatch && (
+                        <div className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-text-secondary" />
+                          <span className="text-xs text-text-secondary">{locationMatch[1]}</span>
+                        </div>
+                      )}
+                      {attendeesMatch && (
+                        <div className="flex items-center gap-1">
+                          <Users className="w-3 h-3 text-text-secondary" />
+                          <span className="text-xs text-text-secondary line-clamp-1">{attendeesMatch[1]}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Email */}
       {(gmailAgent || (data.emailItems && data.emailItems.length > 0)) && (
         <div className="card overflow-hidden">

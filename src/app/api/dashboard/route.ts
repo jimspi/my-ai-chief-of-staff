@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSessionUserId, AuthError } from '@/lib/auth-helpers'
-import { fetchUnreadEmails, fetchTodayEvents } from '@/lib/google'
+import { fetchUnreadEmails, fetchTodayEvents, fetchTomorrowEvents } from '@/lib/google'
 
 export async function GET() {
   try {
@@ -77,15 +77,18 @@ export async function GET() {
     const googleAccount = await prisma.googleAccount.findUnique({ where: { userId } })
     let liveEmailCount = 0
     let liveCalendarCount = 0
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let tomorrowItems: any[] = []
 
     if (googleAccount) {
       const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } })
       const timezone = user?.timezone || 'America/Denver'
 
       // Always fetch live counts for the status bar
-      const [liveEmails, liveEvents] = await Promise.all([
+      const [liveEmails, liveEvents, tomorrowEvents] = await Promise.all([
         fetchUnreadEmails(userId, 10).catch(() => []),
         fetchTodayEvents(userId, timezone).catch(() => []),
+        fetchTomorrowEvents(userId, timezone).catch(() => []),
       ])
       liveEmailCount = liveEmails.length
       liveCalendarCount = liveEvents.length
@@ -135,6 +138,42 @@ export async function GET() {
         })
       }
 
+      // Build tomorrow's calendar items
+      const calendarAgent = agents.find(a => a.category === 'Calendar')
+      tomorrowItems = tomorrowEvents.map((event, i) => {
+        const startTime = event.isAllDay
+          ? 'All day'
+          : new Date(event.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: timezone })
+        const endTime = event.isAllDay
+          ? ''
+          : ` - ${new Date(event.end).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: timezone })}`
+        const attendeeList = event.attendees.length > 0 ? `\nAttendees: ${event.attendees.join(', ')}` : ''
+
+        return {
+          id: `live-tomorrow-${i}`,
+          agentId: calendarAgent?.id || '',
+          externalId: `cal-tomorrow-${event.id}`,
+          action: `Tomorrow: ${event.summary}`,
+          detail: [
+            event.summary,
+            `Time: ${startTime}${endTime}`,
+            event.location ? `Location: ${event.location}` : null,
+            attendeeList || null,
+            event.description ? `\nNotes: ${event.description.slice(0, 300)}` : null,
+          ].filter(Boolean).join('\n'),
+          urgency: 'low',
+          status: 'pending' as const,
+          reasoning: null,
+          relevanceScore: null,
+          suggestedAction: null,
+          goalAlignment: null,
+          triaged: false,
+          createdAt: new Date().toISOString(),
+          resolvedAt: null,
+          agent: calendarAgent || null,
+        }
+      })
+
       // If the pipeline has no email items, build them from live data
       if (emailItems.length === 0 && liveEmails.length > 0) {
         const gmailAgent = agents.find(a => a.category === 'Gmail')
@@ -166,6 +205,7 @@ export async function GET() {
       content: otherContent,
       emailItems,
       calendarItems,
+      tomorrowItems,
       agents,
       recentActivity,
       insights,

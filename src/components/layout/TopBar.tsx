@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { Bell } from 'lucide-react'
 
 const pageTitles: Record<string, string> = {
@@ -17,6 +17,7 @@ function getPageTitle(pathname: string): string {
 
 export default function TopBar() {
   const pathname = usePathname()
+  const router = useRouter()
   const [pendingCount, setPendingCount] = useState(0)
   const title = getPageTitle(pathname)
 
@@ -41,8 +42,9 @@ export default function TopBar() {
 
       <div className="flex items-center gap-3">
         <button
+          onClick={() => router.push('/queue')}
           className="relative p-2 rounded-button hover:bg-surface-bg transition-colors"
-          aria-label="Notifications"
+          aria-label="View pending items"
         >
           <Bell className="w-5 h-5 text-text-secondary" />
           {pendingCount > 0 && (
