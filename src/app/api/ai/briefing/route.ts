@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { getSessionUserId, AuthError } from '@/lib/auth-helpers'
 import { getOpenAIClient } from '@/lib/openai'
 import { getGoalsSummary } from '@/lib/goals'
+import { fetchUnreadEmails, fetchTodayEvents } from '@/lib/google'
 
 export async function POST(request: Request) {
   try {
@@ -21,10 +22,20 @@ export async function POST(request: Request) {
       )
     }
 
-    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    const timezone = user?.timezone || 'America/Denver'
     const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
 
-    const [agents, pendingContent, recentApproved, recentDenied, recentActivity, weekActivity, goalsSummary] = await Promise.all([
+    // Fetch everything in parallel — including live Google data for reliability
+    const [
+      agents,
+      pendingContent,
+      recentApproved,
+      recentDenied,
+      weekActivity,
+      goalsSummary,
+      liveEmails,
+      liveEvents,
+    ] = await Promise.all([
       prisma.agent.findMany({
         where: { userId },
         select: { name: true, category: true, status: true, lastScannedAt: true, externalUrl: true, approvalRate: true, avgRelevance: true },
@@ -40,15 +51,13 @@ export async function POST(request: Request) {
       prisma.approvalItem.count({
         where: { status: 'denied', agent: { userId }, resolvedAt: { gte: since7d } },
       }),
-      prisma.activityLog.findMany({
-        where: { agent: { userId }, createdAt: { gte: since24h } },
-        include: { agent: { select: { name: true } } },
-        orderBy: { createdAt: 'desc' },
-      }),
       prisma.activityLog.count({
         where: { agent: { userId }, createdAt: { gte: since7d } },
       }),
       getGoalsSummary(userId),
+      // Live Google data — always fetch so briefing has real data even if sync pipeline failed
+      fetchUnreadEmails(userId, 15).catch(() => []),
+      fetchTodayEvents(userId, timezone).catch(() => []),
     ])
 
     const highUrgency = pendingContent.filter(c => c.urgency === 'high')
@@ -67,48 +76,55 @@ export async function POST(request: Request) {
       }
     }
 
-    // Cross-agent patterns
-    const crossAgentPatterns: string[] = []
-    const agentsByCategory: Record<string, string[]> = {}
-    for (const a of agents) {
-      if (!agentsByCategory[a.category]) agentsByCategory[a.category] = []
-      agentsByCategory[a.category].push(a.name)
-    }
-    for (const cat of Object.keys(agentsByCategory)) {
-      const names = agentsByCategory[cat]
-      if (names.length > 1) {
-        crossAgentPatterns.push(`Multiple agents in ${cat}: ${names.join(', ')} — check for overlap`)
-      }
-    }
-
     const approvalRate = recentApproved + recentDenied > 0
       ? Math.round((recentApproved / (recentApproved + recentDenied)) * 100)
       : null
 
+    // Use live Google data for email/calendar context (most reliable source)
+    const emailDetails = liveEmails.length > 0
+      ? liveEmails.slice(0, 10).map(e => {
+          const senderName = e.from.replace(/<.*>/, '').trim()
+          return `- From: ${senderName} | Subject: ${e.subject} | Preview: ${e.snippet.slice(0, 100)}`
+        }).join('\n')
+      : 'No unread emails in inbox.'
+
+    const calendarDetails = liveEvents.length > 0
+      ? liveEvents.map(e => {
+          const time = e.isAllDay ? 'All day' : new Date(e.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: timezone })
+          const endTime = e.isAllDay ? '' : ` - ${new Date(e.end).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: timezone })}`
+          const attendeeCount = e.attendees.length
+          return `- ${time}${endTime}: ${e.summary}${e.location ? ` @ ${e.location}` : ''}${attendeeCount > 0 ? ` (${attendeeCount} attendees)` : ''}`
+        }).join('\n')
+      : 'No events on calendar today.'
+
+    // Also include pipeline items for richer context (other agents beyond email/calendar)
+    const otherItems = pendingContent.filter(c => {
+      const name = c.agent.name.toLowerCase()
+      return !name.includes('gmail') && !name.includes('calendar')
+    })
+
     const context = `
-CURRENT TIME: ${new Date().toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+CURRENT TIME: ${new Date().toLocaleString('en-US', { timeZone: timezone, weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
 USER: ${body.userName || 'Boss'}
 
 YOUR GOALS:
 ${goalsSummary}
 
-AGENTS (${agents.length}):
-${agents.map(a => `- ${a.name} (${a.category}) — ${a.status}${a.lastScannedAt ? `, last scanned ${Math.round((Date.now() - new Date(a.lastScannedAt).getTime()) / 3600000)}h ago` : ', never scanned'}${a.externalUrl ? ' [connected]' : ' [manual]'}${a.approvalRate != null ? ` | approval: ${Math.round(a.approvalRate * 100)}%` : ''}${a.avgRelevance != null ? ` | relevance: ${a.avgRelevance.toFixed(1)}/10` : ''}`).join('\n')}
+TODAY'S CALENDAR (${liveEvents.length} events):
+${calendarDetails}
 
-PENDING QUEUE (${pendingContent.length} items) — BY SUGGESTED ACTION:
-${byAction.escalate.length > 0 ? `ESCALATE:\n${byAction.escalate.map(s => `  ! ${s}`).join('\n')}` : ''}
-${byAction.approve.length > 0 ? `APPROVE:\n${byAction.approve.map(s => `  + ${s}`).join('\n')}` : ''}
-${byAction.review.length > 0 ? `REVIEW:\n${byAction.review.map(s => `  ? ${s}`).join('\n')}` : ''}
-${byAction.dismiss.length > 0 ? `DISMISS:\n${byAction.dismiss.map(s => `  - ${s}`).join('\n')}` : ''}
-${pendingContent.length === 0 ? 'Queue is clear.' : ''}
+UNREAD EMAILS (${liveEmails.length}):
+${emailDetails}
+
+${otherItems.length > 0 ? `OTHER PENDING ITEMS (${otherItems.length}):\n${otherItems.map(c => `- [${c.agent.name}] ${c.action}: ${c.detail.slice(0, 150)}`).join('\n')}` : ''}
+
+${pendingContent.length > 0 ? `TRIAGED QUEUE SUMMARY (${pendingContent.length} items):
+${byAction.escalate.length > 0 ? `ESCALATE (${byAction.escalate.length}):\n${byAction.escalate.map(s => `  ! ${s}`).join('\n')}` : ''}
+${byAction.approve.length > 0 ? `APPROVE (${byAction.approve.length}):\n${byAction.approve.map(s => `  + ${s}`).join('\n')}` : ''}
+${byAction.review.length > 0 ? `REVIEW (${byAction.review.length}):\n${byAction.review.map(s => `  ? ${s}`).join('\n')}` : ''}
+${byAction.dismiss.length > 0 ? `DISMISS (${byAction.dismiss.length}):\n${byAction.dismiss.map(s => `  - ${s}`).join('\n')}` : ''}` : ''}
 
 7-DAY STATS: ${recentApproved} approved, ${recentDenied} dismissed${approvalRate !== null ? ` (${approvalRate}% approval rate)` : ''}, ${weekActivity} total agent actions
-
-CROSS-AGENT INTELLIGENCE:
-${crossAgentPatterns.length > 0 ? crossAgentPatterns.join('\n') : 'No cross-agent patterns detected.'}
-
-LAST 24H ACTIVITY (${recentActivity.length} events):
-${recentActivity.length === 0 ? 'No activity.' : recentActivity.slice(0, 15).map(a => `- ${a.agent.name}: ${a.action} (${a.type})`).join('\n')}
 
 ${staleAgents.length > 0 ? `STALE AGENTS (not scanned in 24h+): ${staleAgents.map(a => a.name).join(', ')}` : ''}
 ${highUrgency.length > 0 ? `HIGH URGENCY ITEMS: ${highUrgency.length} need immediate attention` : ''}
@@ -120,41 +136,37 @@ ${highUrgency.length > 0 ? `HIGH URGENCY ITEMS: ${highUrgency.length} need immed
       messages: [
         {
           role: 'system',
-          content: `You are a sharp, decisive Chief of Staff. Not a summarizer — an operator. Your job is to look at the data, think critically, and tell the boss exactly what they need to know and do.
+          content: `You are a sharp, decisive Chief of Staff. Your job: tell the boss exactly what to do today, in what order, and why.
 
 Your briefing must include these sections (use these exact labels):
 
-PRIORITY ACTIONS
-What needs to be done RIGHT NOW. Be specific. Reference the user's goals when recommending actions. If there are high-urgency or escalated items, say what they are and recommend approve/dismiss with a reason. If the queue is empty, suggest proactive moves aligned with their goals.
+RIGHT NOW
+The 1-3 most important things to do in the next 2 hours. Be hyper-specific: "Reply to Sarah's email about the Q2 budget — she needs a number by EOD" not "Review emails." If there's a meeting soon, tell them what to prepare. Connect every action to a goal or deadline.
 
-AGENT STATUS
-Which agents are working well, which are stale or offline. Include approval rates and relevance scores when available. Call out agents that aren't serving the user's goals.
+TODAY'S GAME PLAN
+A time-blocked plan for the day based on their calendar, emails, and goals. Example: "9am: Prep for 10am standup — review the deploy status. 10am-10:30am: Standup. 10:30am: Reply to 3 urgent emails (Sarah, Mike, recruiter). 11am: Deep work on [goal]." Be specific with names and subjects.
 
-CROSS-AGENT INTELLIGENCE
-Patterns you see across agents. Overlapping content, gaps in coverage, agents that might be redundant. Surface insights the user wouldn't see looking at agents individually.
+EMAILS THAT MATTER
+List the 3-5 most important unread emails by name and subject. For each one, say what to do: reply, forward, archive, or flag for later. If an email connects to a goal, say which one. Skip newsletters and notifications — only surface emails that need human judgment.
 
-DECISIONS NEEDED
-Review pending content grouped by suggested action. For each item, give your recommendation and explain why in one line. Be opinionated. Flag items that don't align with any goal.
-
-GOAL ALIGNMENT CHECK
-Are the agents collectively serving the user's stated goals? Any goals with no agent coverage? Any agents producing content that doesn't serve any goal? Recommend adjustments.
-
-STRATEGIC NOTE
-One insight or pattern. Think like a strategist — what should the user be doing differently?
+WATCH LIST
+Things that don't need action now but could become problems: unanswered follow-ups, meetings without agendas, goals with no recent progress, patterns you notice. Be specific.
 
 Rules:
-- Be direct and assertive, not deferential
-- Use short punchy sentences
-- No fluff, no "I hope you're having a great day"
-- If something looks wrong, say it plainly
+- Reference people by name, meetings by title, emails by subject
+- Every recommendation must connect to a goal, deadline, or consequence
+- No generic advice ("stay focused", "prioritize well") — only specific actions
+- Use bullet points, not paragraphs
 - Address the user by name
-- Reference specific goals when making recommendations
-- Keep the whole briefing under 450 words`,
+- If their calendar is empty, tell them to use the time for their top goal
+- If they have no goals set, call that out as the first priority
+- If there are no emails or events, give them a proactive plan based on their goals
+- Keep the whole briefing under 500 words`,
         },
         { role: 'user', content: context },
       ],
       temperature: 0.7,
-      max_tokens: 1200,
+      max_tokens: 1500,
     })
 
     const briefing = response.choices[0]?.message?.content || 'Unable to generate briefing.'

@@ -24,7 +24,7 @@ export async function triageItem(
     messages: [
       {
         role: 'system',
-        content: `You are an AI Chief of Staff triage engine. Score incoming items against the user's goals and recommend an action.
+        content: `You are an AI Chief of Staff triage engine. Score incoming items against the user's goals and tell them what to DO about each one.
 
 USER'S GOALS:
 ${goalsSummary}
@@ -38,14 +38,15 @@ Respond with ONLY valid JSON (no markdown):
   "relevanceScore": 0-10,
   "suggestedAction": "approve" | "review" | "dismiss" | "escalate",
   "goalAlignment": "which goal this serves, or 'none'",
-  "reasoning": "one sentence explaining your judgment"
+  "reasoning": "specific action recommendation - e.g. 'Reply today — they need budget approval by Friday' NOT generic like 'may be relevant to goals'"
 }
 
 Scoring rules:
-- urgency: high = time-sensitive + goal-aligned, medium = useful but not urgent, low = noise or tangential
+- urgency: high = needs response/action within hours, medium = should handle today, low = can wait or ignore
 - relevanceScore: 10 = directly advances top goal, 0 = completely irrelevant
-- suggestedAction: approve = high quality + goal-aligned, review = needs human judgment, dismiss = low relevance or noise, escalate = urgent + important
-- Be opinionated. If content is generic filler, score it low.`,
+- suggestedAction: approve = important + act on it, review = needs human judgment, dismiss = noise/low value, escalate = urgent + blocking something
+- reasoning: MUST be a specific action the user should take. Say what to do, not just why it matters. Reference the sender/subject/event by name.
+- Be opinionated. Newsletters, marketing, and automated notifications = dismiss. Personal emails from real people = higher priority.`,
       },
       {
         role: 'user',

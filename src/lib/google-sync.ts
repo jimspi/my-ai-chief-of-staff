@@ -6,6 +6,13 @@ async function getUserTimezone(userId: string): Promise<string> {
   return user?.timezone || 'America/Denver'
 }
 
+// Delete old resolved items for an externalId so we can create a fresh pending one
+async function clearResolvedItem(agentId: string, externalId: string) {
+  await prisma.approvalItem.deleteMany({
+    where: { agentId, externalId, status: { in: ['approved', 'denied'] } },
+  })
+}
+
 export async function syncGmailAgent(agentId: string, userId: string) {
   const [unread, followUps] = await Promise.all([
     fetchUnreadEmails(userId),
@@ -15,17 +22,21 @@ export async function syncGmailAgent(agentId: string, userId: string) {
   let created = 0
   let skipped = 0
 
-  // Unread emails
+  // Unread emails — only skip if a PENDING item already exists for this email.
+  // If the user already approved/denied it, allow re-creation so it shows up again
+  // on next visit (the email is still unread in Gmail, so it's still relevant).
   for (const email of unread) {
     const externalId = `gmail-${email.id}`
     const existing = await prisma.approvalItem.findFirst({
-      where: { agentId, externalId },
+      where: { agentId, externalId, status: 'pending' },
     })
     if (existing) { skipped++; continue }
 
     const senderName = email.from.replace(/<.*>/, '').trim() || email.from
 
     try {
+      // Clear old resolved items so we can re-create fresh
+      await clearResolvedItem(agentId, externalId)
       await prisma.approvalItem.create({
         data: {
           agentId,
@@ -45,15 +56,16 @@ export async function syncGmailAgent(agentId: string, userId: string) {
     }
   }
 
-  // Follow-up emails
+  // Follow-up emails — same logic, only skip if pending item exists
   for (const email of followUps) {
     const externalId = `gmail-followup-${email.threadId}`
     const existing = await prisma.approvalItem.findFirst({
-      where: { agentId, externalId },
+      where: { agentId, externalId, status: 'pending' },
     })
     if (existing) { skipped++; continue }
 
     try {
+      await clearResolvedItem(agentId, externalId)
       await prisma.approvalItem.create({
         data: {
           agentId,
@@ -98,22 +110,32 @@ export async function syncCalendarAgent(agentId: string, userId: string) {
   let created = 0
   let skipped = 0
 
-  const nowInTz = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))
-  const isEvening = nowInTz.getHours() >= 17
+  // Get current time in user's timezone reliably
+  const now = new Date()
+  const tzParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(now)
+  const getPart = (type: string) => tzParts.find(p => p.type === type)?.value || ''
+  const currentHour = parseInt(getPart('hour'), 10)
+  const isEvening = currentHour >= 17
+  const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(now)
 
   for (const event of events) {
-    const externalId = `cal-${event.id}-${nowInTz.toISOString().slice(0, 10)}`
+    const externalId = `cal-${event.id}-${todayStr}`
     const existing = await prisma.approvalItem.findFirst({
-      where: { agentId, externalId },
+      where: { agentId, externalId, status: 'pending' },
     })
     if (existing) { skipped++; continue }
 
+    // Format times in the user's timezone
     const startTime = event.isAllDay
       ? 'All day'
-      : new Date(event.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      : new Date(event.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: timezone })
     const endTime = event.isAllDay
       ? ''
-      : ` - ${new Date(event.end).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+      : ` - ${new Date(event.end).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: timezone })}`
 
     const attendeeList = event.attendees.length > 0
       ? `\nAttendees: ${event.attendees.join(', ')}`
@@ -127,16 +149,17 @@ export async function syncCalendarAgent(agentId: string, userId: string) {
       event.description ? `\nNotes: ${event.description.slice(0, 300)}` : null,
     ].filter(Boolean).join('\n')
 
-    // Determine urgency based on timing
+    // Determine urgency based on timing (compare in real UTC)
     let urgency = 'low'
     if (!event.isAllDay) {
       const eventStart = new Date(event.start)
-      const hoursUntil = (eventStart.getTime() - nowInTz.getTime()) / (60 * 60 * 1000)
+      const hoursUntil = (eventStart.getTime() - now.getTime()) / (60 * 60 * 1000)
       if (hoursUntil <= 1 && hoursUntil > 0) urgency = 'high'
       else if (hoursUntil <= 3 && hoursUntil > 0) urgency = 'medium'
     }
 
     try {
+      await clearResolvedItem(agentId, externalId)
       await prisma.approvalItem.create({
         data: {
           agentId,
@@ -160,13 +183,13 @@ export async function syncCalendarAgent(agentId: string, userId: string) {
 
   // End-of-day summary if evening
   if (isEvening && events.length > 0) {
-    const summaryId = `cal-summary-${nowInTz.toISOString().slice(0, 10)}`
+    const summaryId = `cal-summary-${todayStr}`
     const existing = await prisma.approvalItem.findFirst({
-      where: { agentId, externalId: summaryId },
+      where: { agentId, externalId: summaryId, status: 'pending' },
     })
     if (!existing) {
       const summary = events.map(e => {
-        const time = e.isAllDay ? 'All day' : new Date(e.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+        const time = e.isAllDay ? 'All day' : new Date(e.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: timezone })
         return `- ${time}: ${e.summary}`
       }).join('\n')
 

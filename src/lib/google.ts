@@ -77,26 +77,28 @@ interface EmailItem {
   threadId: string
 }
 
-export async function fetchUnreadEmails(userId: string, maxResults = 15): Promise<EmailItem[]> {
+export async function fetchUnreadEmails(userId: string, maxResults = 25): Promise<EmailItem[]> {
   const auth = await getAuthedClient(userId)
   if (!auth) return []
 
   const gmail = google.gmail({ version: 'v1', auth })
 
-  const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
-  const dateStr = `${twoDaysAgo.getFullYear()}/${twoDaysAgo.getMonth() + 1}/${twoDaysAgo.getDate()}`
+  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+  const dateStr = `${threeDaysAgo.getFullYear()}/${threeDaysAgo.getMonth() + 1}/${threeDaysAgo.getDate()}`
 
+  // Filter to Primary category unread inbox emails
+  // Using category:primary in q parameter is more reliable than CATEGORY_PRIMARY labelId
   const res = await gmail.users.messages.list({
     userId: 'me',
-    labelIds: ['INBOX', 'UNREAD', 'CATEGORY_PRIMARY'],
-    q: `after:${dateStr}`,
+    labelIds: ['INBOX', 'UNREAD'],
+    q: `category:primary after:${dateStr}`,
     maxResults,
   })
 
   const messages = res.data.messages || []
   const emails: EmailItem[] = []
 
-  for (const msg of messages.slice(0, 10)) {
+  for (const msg of messages.slice(0, 20)) {
     try {
       const detail = await gmail.users.messages.get({
         userId: 'me',
@@ -213,15 +215,18 @@ export async function fetchTodayEvents(userId: string, timezone = 'America/Denve
 
   const calendar = google.calendar({ version: 'v3', auth })
 
-  // Get today's date in the user's timezone
-  const nowInTz = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }))
-  const startOfDay = new Date(nowInTz.getFullYear(), nowInTz.getMonth(), nowInTz.getDate())
-  const endOfDay = new Date(nowInTz.getFullYear(), nowInTz.getMonth(), nowInTz.getDate() + 1)
+  // Get today's date in the user's timezone reliably
+  const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date()) // "YYYY-MM-DD"
 
-  // Convert back to UTC for the API
-  const tzOffset = nowInTz.getTime() - new Date().getTime()
-  const startUTC = new Date(startOfDay.getTime() - tzOffset)
-  const endUTC = new Date(endOfDay.getTime() - tzOffset)
+  // Calculate UTC offset for this timezone
+  const now = new Date()
+  const utcDate = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }))
+  const tzDate = new Date(now.toLocaleString('en-US', { timeZone: timezone }))
+  const offsetMs = tzDate.getTime() - utcDate.getTime()
+
+  // Midnight and end-of-day in user's timezone, converted to UTC
+  const startUTC = new Date(new Date(`${todayStr}T00:00:00Z`).getTime() - offsetMs)
+  const endUTC = new Date(new Date(`${todayStr}T23:59:59.999Z`).getTime() - offsetMs)
 
   const res = await calendar.events.list({
     calendarId: 'primary',

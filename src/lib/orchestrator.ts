@@ -60,9 +60,9 @@ export async function orchestrateSync(userId: string, apiKey?: string): Promise<
     }
   }
 
-  // 2. Triage new untriaged items if we have an API key
+  // 2. Triage untriaged items if we have an API key (always check, not just when new items created)
   let triaged = 0
-  if (apiKey && totalCreated > 0) {
+  if (apiKey) {
     const untriagedItems = await prisma.approvalItem.findMany({
       where: {
         agent: { userId },

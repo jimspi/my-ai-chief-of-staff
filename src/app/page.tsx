@@ -49,30 +49,79 @@ export default function BriefingPage() {
     }
   }, [])
 
+  const generateBriefingAuto = useCallback(async (userName?: string) => {
+    setBriefingLoading(true)
+    try {
+      const res = await fetch('/api/ai/briefing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userName }),
+      })
+      if (res.ok) {
+        const result = await res.json()
+        setBriefing(result.briefing)
+      }
+    } catch { /* briefing failed silently */ }
+    finally { setBriefingLoading(false) }
+  }, [])
+
   useEffect(() => {
     let cancelled = false
-    async function syncAndLoad() {
+    async function loadDashboard() {
+      // 1. Load initial data (includes live Google fallback)
       await fetchData()
+
+      // 2. Always generate briefing right away from whatever data we have
+      if (!cancelled) {
+        generateBriefingAuto(session?.user?.name || undefined)
+      }
+
+      // 3. Run sync in background — when it finishes, refresh data
       try {
         const res = await fetch('/api/agents/sync', { method: 'POST' })
         if (res.ok && !cancelled) {
           const result = await res.json()
           if (result.totalCreated > 0) {
-            fetchData()
             addToast(`${result.totalCreated} new item${result.totalCreated === 1 ? '' : 's'} synced`, 'success')
           }
+          // Refresh data with newly synced items
+          await fetchData()
         }
-      } catch { /* sync failed silently */ }
+      } catch {
+        // Sync failed — that's ok, we already have live data from the dashboard API
+      }
     }
-    syncAndLoad()
+    loadDashboard()
     return () => { cancelled = true }
-  }, [fetchData, addToast])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function handleAction(id: string, action: 'approve' | 'deny') {
     setProcessingIds(prev => new Set(prev).add(id))
     try {
       const allItems = [...(data?.emailItems || []), ...(data?.calendarItems || []), ...(data?.content || [])]
       const item = allItems.find(c => c.id === id)
+
+      // Live items (from direct Google fetch) don't have real DB IDs — just remove from UI
+      if (id.startsWith('live-')) {
+        if (action === 'approve' && item) {
+          await navigator.clipboard.writeText(item.detail)
+          addToast('Copied to clipboard', 'success')
+        } else {
+          addToast('Dismissed', 'info')
+        }
+        // Remove from local state
+        if (data) {
+          setData({
+            ...data,
+            emailItems: data.emailItems.filter(i => i.id !== id),
+            calendarItems: data.calendarItems.filter(i => i.id !== id),
+            content: data.content.filter(i => i.id !== id),
+          })
+        }
+        return
+      }
+
       const res = await fetch(`/api/approvals/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -192,7 +241,8 @@ export default function BriefingPage() {
 
   const gmailAgent = data.agents.find((a: Agent) => a.category === 'Gmail')
   const calendarAgent = data.agents.find((a: Agent) => a.category === 'Calendar')
-  const googleConnected = gmailAgent || calendarAgent
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const googleConnected = gmailAgent || calendarAgent || (data as any).googleConnected
 
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
@@ -228,18 +278,34 @@ export default function BriefingPage() {
       </div>
 
       {/* AI Briefing */}
+      {briefingLoading && !briefing && (
+        <div className="card p-5 border-l-4 border-l-accent-teal">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 text-accent-teal animate-spin" />
+            <h3 className="font-heading text-sm text-accent-teal">Generating your briefing...</h3>
+          </div>
+        </div>
+      )}
       {briefing && (
         <div className="card p-5 border-l-4 border-l-accent-teal">
           <div className="flex items-center gap-2 mb-3">
             <Sparkles className="w-4 h-4 text-accent-teal" />
             <h3 className="font-heading text-sm text-accent-teal">AI BRIEFING</h3>
           </div>
-          <div className="text-sm text-text-primary leading-relaxed space-y-2">
+          <div className="text-sm text-text-primary leading-relaxed space-y-1">
             {briefing.split('\n').map((line, i) => {
               const trimmed = line.trim()
-              if (!trimmed) return null
-              if (/^[A-Z][A-Z\s]{3,}$/.test(trimmed)) {
-                return <h4 key={i} className="font-heading text-accent-teal text-xs pt-3 first:pt-0 uppercase tracking-wide">{trimmed}</h4>
+              if (!trimmed) return <div key={i} className="h-2" />
+              if (/^[A-Z][A-Z\s']{3,}$/.test(trimmed)) {
+                return <h4 key={i} className="font-heading text-accent-teal text-xs pt-4 first:pt-0 uppercase tracking-wide border-b border-accent-teal/20 pb-1">{trimmed}</h4>
+              }
+              // Bold text
+              const withBold = trimmed.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+              if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+                return <p key={i} className="ml-3 text-text-secondary" dangerouslySetInnerHTML={{ __html: '&bull; ' + withBold.slice(2) }} />
+              }
+              if (withBold !== trimmed) {
+                return <p key={i} dangerouslySetInnerHTML={{ __html: withBold }} />
               }
               return <p key={i}>{trimmed}</p>
             })}
@@ -270,7 +336,7 @@ export default function BriefingPage() {
       )}
 
       {/* Today's Schedule */}
-      {calendarAgent && (
+      {(calendarAgent || (data.calendarItems && data.calendarItems.length > 0)) && (
         <div className="card overflow-hidden">
           <div className="flex items-center justify-between p-4 pb-3">
             <div className="flex items-center gap-2">
@@ -280,14 +346,16 @@ export default function BriefingPage() {
                 <span className="text-xs text-text-secondary bg-surface-bg px-2 py-0.5 rounded-full">{data.calendarItems.length}</span>
               )}
             </div>
-            <button
-              onClick={() => handleScan(calendarAgent.id)}
-              disabled={scanningId !== null}
-              className="text-text-secondary hover:text-text-primary transition-colors p-1.5"
-              title="Refresh calendar"
-            >
-              <RefreshCw className={cn('w-4 h-4', scanningId === calendarAgent.id && 'animate-spin')} />
-            </button>
+            {calendarAgent && (
+              <button
+                onClick={() => handleScan(calendarAgent.id)}
+                disabled={scanningId !== null}
+                className="text-text-secondary hover:text-text-primary transition-colors p-1.5"
+                title="Refresh calendar"
+              >
+                <RefreshCw className={cn('w-4 h-4', scanningId === calendarAgent.id && 'animate-spin')} />
+              </button>
+            )}
           </div>
           {data.calendarItems.length === 0 ? (
             <p className="text-sm text-text-secondary px-4 pb-4">No events today.</p>
@@ -317,7 +385,10 @@ export default function BriefingPage() {
                       </div>
                       {/* Event details */}
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-text-primary">{eventName}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-text-primary">{eventName}</p>
+                          {item.urgency === 'high' && <Badge variant="danger" size="sm">soon</Badge>}
+                        </div>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
                           {timeMatch && timeMatch[1].includes(' - ') && (
                             <div className="flex items-center gap-1">
@@ -405,7 +476,7 @@ export default function BriefingPage() {
       )}
 
       {/* Email */}
-      {gmailAgent && (
+      {(gmailAgent || (data.emailItems && data.emailItems.length > 0)) && (
         <div className="card overflow-hidden">
           <div className="flex items-center justify-between p-4 pb-3">
             <div className="flex items-center gap-2">
@@ -415,14 +486,16 @@ export default function BriefingPage() {
                 <span className="text-xs text-text-secondary bg-surface-bg px-2 py-0.5 rounded-full">{data.emailItems.length}</span>
               )}
             </div>
-            <button
-              onClick={() => handleScan(gmailAgent.id)}
-              disabled={scanningId !== null}
-              className="text-text-secondary hover:text-text-primary transition-colors p-1.5"
-              title="Refresh email"
-            >
-              <RefreshCw className={cn('w-4 h-4', scanningId === gmailAgent.id && 'animate-spin')} />
-            </button>
+            {gmailAgent && (
+              <button
+                onClick={() => handleScan(gmailAgent.id)}
+                disabled={scanningId !== null}
+                className="text-text-secondary hover:text-text-primary transition-colors p-1.5"
+                title="Refresh email"
+              >
+                <RefreshCw className={cn('w-4 h-4', scanningId === gmailAgent.id && 'animate-spin')} />
+              </button>
+            )}
           </div>
           {data.emailItems.length === 0 ? (
             <p className="text-sm text-text-secondary px-4 pb-4">No emails need attention.</p>
@@ -450,10 +523,18 @@ export default function BriefingPage() {
                         {item.urgency === 'high' && !isFollowUp && (
                           <Badge variant="danger" size="sm">urgent</Badge>
                         )}
+                        {item.suggestedAction && item.suggestedAction !== 'review' && (
+                          <Badge variant={item.suggestedAction === 'approve' ? 'success' : item.suggestedAction === 'escalate' ? 'danger' : 'default'} size="sm">
+                            {item.suggestedAction}
+                          </Badge>
+                        )}
                         <span className="text-xs text-text-secondary ml-auto shrink-0">{formatRelativeTime(item.createdAt)}</span>
                       </div>
                       <p className="text-sm text-text-primary truncate">{subject}</p>
-                      <p className="text-xs text-text-secondary mt-0.5 line-clamp-1">{item.detail.split('\n\n')[1] || ''}</p>
+                      <p className="text-xs text-text-secondary mt-0.5 line-clamp-2">{item.detail.split('\n\n')[1] || ''}</p>
+                      {item.reasoning && item.reasoning !== 'Unread email in primary inbox' && (
+                        <p className="text-xs text-accent-teal mt-1 italic">{item.reasoning}</p>
+                      )}
                     </div>
                     <div className="flex gap-1 shrink-0">
                       <button
