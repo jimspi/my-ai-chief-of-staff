@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { fetchUnreadEmails, fetchFollowUpEmails, fetchTodayEvents } from '@/lib/google'
+import { fetchUnreadEmails, fetchFollowUpEmails, fetchUnansweredEmails, fetchTodayEvents } from '@/lib/google'
 
 async function getUserTimezone(userId: string): Promise<string> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } })
@@ -14,9 +14,10 @@ async function clearResolvedItem(agentId: string, externalId: string) {
 }
 
 export async function syncGmailAgent(agentId: string, userId: string) {
-  const [unread, followUps] = await Promise.all([
+  const [unread, followUps, unanswered] = await Promise.all([
     fetchUnreadEmails(userId),
     fetchFollowUpEmails(userId),
+    fetchUnansweredEmails(userId),
   ])
 
   let created = 0
@@ -85,13 +86,44 @@ export async function syncGmailAgent(agentId: string, userId: string) {
     }
   }
 
+  // Unanswered received emails — emails received 3+ days ago with no reply from user
+  for (const email of unanswered) {
+    const externalId = `gmail-unanswered-${email.threadId}`
+    const existing = await prisma.approvalItem.findFirst({
+      where: { agentId, externalId, status: 'pending' },
+    })
+    if (existing) { skipped++; continue }
+
+    const senderName = email.from.replace(/<.*>/, '').trim() || email.from
+
+    try {
+      await clearResolvedItem(agentId, externalId)
+      await prisma.approvalItem.create({
+        data: {
+          agentId,
+          externalId,
+          action: `Suggest follow up: reply to ${senderName}`,
+          detail: `You received an email from ${senderName} about "${email.subject}" ${email.date ? `on ${email.date}` : ''} and haven't replied.\n\nPreview: ${email.snippet}\n\nConsider replying or archiving if no response is needed.`,
+          urgency: 'medium',
+          status: 'pending',
+          reasoning: 'Received email with no reply in 3+ days',
+        },
+      })
+      created++
+    } catch (err: unknown) {
+      if (typeof err === 'object' && err !== null && 'code' in err && (err as { code: string }).code === 'P2002') {
+        skipped++
+      } else throw err
+    }
+  }
+
   await prisma.activityLog.create({
     data: {
       agentId,
       action: `Gmail scan: ${created} new, ${skipped} skipped`,
       type: 'auto',
       category: 'Communication',
-      detail: `Found ${unread.length} unread emails, ${followUps.length} needing follow-up.`,
+      detail: `Found ${unread.length} unread, ${followUps.length} awaiting reply, ${unanswered.length} unanswered.`,
     },
   })
 

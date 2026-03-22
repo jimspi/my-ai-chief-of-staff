@@ -195,6 +195,83 @@ export async function fetchFollowUpEmails(userId: string): Promise<EmailItem[]> 
   return followUps
 }
 
+// --- Unanswered Received Emails ---
+
+export async function fetchUnansweredEmails(userId: string, maxResults = 15): Promise<EmailItem[]> {
+  const auth = await getAuthedClient(userId)
+  if (!auth) return []
+
+  const gmail = google.gmail({ version: 'v1', auth })
+
+  // Emails received 3-7 days ago that the user hasn't replied to
+  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  const afterStr = `${sevenDaysAgo.getFullYear()}/${sevenDaysAgo.getMonth() + 1}/${sevenDaysAgo.getDate()}`
+  const beforeStr = `${threeDaysAgo.getFullYear()}/${threeDaysAgo.getMonth() + 1}/${threeDaysAgo.getDate()}`
+
+  const res = await gmail.users.messages.list({
+    userId: 'me',
+    q: `category:primary after:${afterStr} before:${beforeStr} -from:me`,
+    labelIds: ['INBOX'],
+    maxResults,
+  })
+
+  const messages = res.data.messages || []
+  const unanswered: EmailItem[] = []
+
+  // Get user's email to detect replies
+  const profile = await gmail.users.getProfile({ userId: 'me' })
+  const userEmail = profile.data.emailAddress?.toLowerCase() || ''
+
+  for (const msg of messages.slice(0, 10)) {
+    try {
+      const detail = await gmail.users.messages.get({
+        userId: 'me',
+        id: msg.id!,
+        format: 'metadata',
+        metadataHeaders: ['From', 'Subject', 'Date'],
+      })
+
+      const threadId = detail.data.threadId
+      if (!threadId) continue
+
+      // Check the thread to see if user has replied
+      const thread = await gmail.users.threads.get({
+        userId: 'me',
+        id: threadId,
+        format: 'metadata',
+        metadataHeaders: ['From'],
+      })
+
+      const threadMessages = thread.data.messages || []
+      const userReplied = threadMessages.some(m => {
+        const fromHeader = m.payload?.headers?.find(h => h.name === 'From')?.value || ''
+        return fromHeader.toLowerCase().includes(userEmail)
+      })
+
+      if (userReplied) continue
+
+      const headers = detail.data.payload?.headers || []
+      const getHeader = (name: string) => headers.find(h => h.name === name)?.value || ''
+
+      unanswered.push({
+        id: msg.id!,
+        from: getHeader('From'),
+        subject: getHeader('Subject') || '(no subject)',
+        snippet: detail.data.snippet || '',
+        date: getHeader('Date'),
+        isUnread: (detail.data.labelIds || []).includes('UNREAD'),
+        labels: ['NEEDS_REPLY'],
+        threadId,
+      })
+    } catch {
+      // skip individual message errors
+    }
+  }
+
+  return unanswered
+}
+
 // --- Calendar ---
 
 export interface CalendarEvent {
